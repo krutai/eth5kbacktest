@@ -315,7 +315,17 @@
     <div class="field"><label>Oturum adı</label><input id="nsName" style="font-family:var(--sans)" placeholder="örn. BTC sabah seansı"></div>
     <div class="row2">
       <div class="field"><label>Kaynak</label><select id="nsSource"><option value="binance">Binance</option><option value="bybit">Bybit</option></select></div>
-      <div class="field"><label>Sembol</label><input id="nsSymbol" value="BTCUSDT"></div>
+      <div class="field"><label>Sembol (yaz veya listeden seç)</label>
+        <input id="nsSymbol" value="BTCUSDT" list="symList" autocomplete="off">
+        <datalist id="symList">
+          <option value="BTCUSDT"><option value="ETHUSDT"><option value="SOLUSDT"><option value="BNBUSDT">
+          <option value="XRPUSDT"><option value="DOGEUSDT"><option value="ADAUSDT"><option value="AVAXUSDT">
+          <option value="LINKUSDT"><option value="DOTUSDT"><option value="LTCUSDT"><option value="TRXUSDT">
+          <option value="MATICUSDT"><option value="ATOMUSDT"><option value="NEARUSDT"><option value="APTUSDT">
+          <option value="ARBUSDT"><option value="OPUSDT"><option value="SUIUSDT"><option value="INJUSDT">
+          <option value="TONUSDT"><option value="PEPEUSDT"><option value="WIFUSDT"><option value="SHIBUSDT">
+        </datalist>
+      </div>
     </div>
     <div class="row2">
       <div class="field"><label>Periyot</label><select id="nsInterval">
@@ -323,7 +333,8 @@
         <option value="1h" selected>1 saat</option><option value="4h">4 saat</option><option value="1d">1 gün</option>
       </select></div>
       <div class="field"><label>Veri derinliği</label><select id="nsDepth">
-        <option value="300">300 mum</option><option value="600" selected>600 mum</option><option value="1000">1000 mum</option>
+        <option value="500">500 mum</option><option value="1000" selected>1000 mum</option>
+        <option value="2000">2000 mum</option><option value="3000">3000 mum</option><option value="5000">5000 mum</option>
       </select></div>
     </div>
     <div class="row2">
@@ -334,7 +345,12 @@
         <option value="off" selected>Kapalı</option><option value="on">Açık (sembol/tarih gizli)</option>
       </select></div>
     </div>
-    <div class="field"><label>Başlangıç tarihi (opsiyonel — eski tarihlere gitmek için)</label>
+    <div class="field"><label>Dönem</label><select id="nsPeriod">
+      <option value="recent" selected>En güncel veri</option>
+      <option value="random">Rastgele tarih (kör mod için)</option>
+      <option value="date">Belirli tarih…</option>
+    </select></div>
+    <div class="field" id="nsDateWrap" style="display:none"><label>Tarih</label>
       <input id="nsStartDate" type="date" style="font-family:var(--sans)"></div>
     <div class="row2">
       <div class="field"><label>Başlangıç bakiyesi ($)</label><input id="nsBalance" class="num" value="10000"></div>
@@ -469,11 +485,49 @@ async function fetchKlines(source, symbol, interval, opts={}){
   const raw=await r.json();
   return raw.map(d=>({time:Math.floor(d[0]/1000),open:+d[1],high:+d[2],low:+d[3],close:+d[4]}));
 }
-// the execution-TF load (depth candles, optional historical startTime)
-async function fetchExec(source, symbol, interval, depth, startTime){
-  const c=await fetchKlines(source,symbol,interval,{limit:depth,startTime});
-  if(!c.length) throw new Error('Veri yok / sembol hatalı ('+source+')');
-  return c;
+function dedupeSorted(arr){
+  const s=[...arr].sort((a,b)=>a.time-b.time); const out=[]; let last=null;
+  for(const c of s){ if(c.time!==last){ out.push(c); last=c.time; } } return out;
+}
+function computeRandomStart(interval, depth){
+  const sec=tfSeconds(interval), span=depth*sec*1000;
+  const cap=4*365*24*3600*1000;       // ~4 years back, plenty of unknown periods
+  const minBack=span*1.15;
+  let maxBack=cap; if(maxBack<minBack) maxBack=minBack*1.5;
+  return Date.now() - (minBack + Math.random()*(maxBack-minBack));
+}
+function needsCoverage(cov, now, vSec, backBars, spanStart){
+  if(!cov) return true;
+  const desiredStart=Math.max(spanStart, now-backBars*vSec);
+  return cov.end < now || cov.start > desiredStart;
+}
+// the execution-TF load — paginates so depth can exceed the 1000/req API cap
+async function loadExec(source, symbol, interval, depth, startTime){
+  let all=[];
+  if(startTime){                                   // forward from a historical date
+    let st=startTime;
+    for(let p=0;p<20 && all.length<depth;p++){
+      const batch=await fetchKlines(source,symbol,interval,{startTime:st,limit:1000});
+      if(!batch.length) break;
+      const add=all.length? batch.filter(c=>c.time>all[all.length-1].time): batch;
+      all.push(...add);
+      if(batch.length<1000) break;
+      st=batch[batch.length-1].time*1000+1;
+    }
+    all=all.slice(0,depth);
+  } else {                                          // most-recent depth, paging backward
+    let endTime;
+    for(let p=0;p<20 && all.length<depth;p++){
+      const batch=await fetchKlines(source,symbol,interval,{endTime,limit:1000});
+      if(!batch.length) break;
+      all=dedupeSorted(batch.concat(all));
+      if(batch.length<1000) break;
+      endTime=batch[0].time*1000-1;
+    }
+    all=all.slice(-depth);
+  }
+  if(all.length<2) throw new Error('Veri yok / sembol hatalı ('+source+')');
+  return all;
 }
 // fetch a finer TF across the session span (paginated on Binance, best-effort on Bybit)
 async function fetchTFRange(source, symbol, interval, startMs, endMs){
@@ -523,6 +577,7 @@ function loadLib(){
 let S=null;            // active session object
 let chart=null, series=null, priceLines=[], pendingSide=null;
 let viewData=[];       // candles currently shown (for marker snapping)
+let fetchingTF=false;  // guard for async finer-TF coverage fetches
 let saveTimer=null;
 
 function emptySession(cfg, candles, startIndex){
@@ -532,7 +587,7 @@ function emptySession(cfg, candles, startIndex){
     startTime:candles[0].time*1000, blind:cfg.blind, viewTF:cfg.interval,
     startingBalance:cfg.balance, balance:cfg.balance, riskPct:cfg.risk,
     startIndex, cursor:startIndex, trades:[], position:null,
-    _candles:candles, _tf:{}, _trunc:{}   // underscore keys are not persisted
+    _candles:candles, _tf:{}, _cov:{}, _trunc:{}   // underscore keys are not persisted
   };
 }
 
@@ -563,18 +618,31 @@ function nowTs(){ return S._candles[S.cursor].time + tfSeconds(S.interval); }
 
 async function getTFFull(tf){
   if(tf===S.interval) return S._candles;
-  if(S._tf[tf]) return S._tf[tf];
   const vSec=tfSeconds(tf), eSec=tfSeconds(S.interval);
-  let full;
   if(vSec>eSec && vSec%eSec===0){
-    full=aggregate(S._candles, vSec);             // derive higher TF — no fetch, perfectly synced
-  } else {
-    const spanStart=S._candles[0].time*1000;
-    const spanEnd=(S._candles[S._candles.length-1].time + eSec)*1000;
-    const res=await fetchTFRange(S.source,S.symbol,tf,spanStart,spanEnd);  // fetch finer TF
-    full=res.candles; if(res.truncated) S._trunc[tf]=true;
+    if(!S._tf[tf]) S._tf[tf]=aggregate(S._candles, vSec);   // derive higher TF — no fetch, perfectly synced
+    return S._tf[tf];
   }
-  S._tf[tf]=full; return full;
+  await ensureFinerCoverage(tf);                            // finer TF — fetch a window around current moment
+  return S._tf[tf]||[];
+}
+// Fetch finer-TF data covering [~1500 bars back .. a bit ahead of now]. We may cache
+// candles slightly past `now`, but visibleForView never SHOWS them — so no look-ahead.
+async function ensureFinerCoverage(tf){
+  const vSec=tfSeconds(tf);
+  const spanStart=S._candles[0].time;
+  const spanEnd=S._candles[S._candles.length-1].time+tfSeconds(S.interval);
+  const cov=S._cov[tf];
+  if(!needsCoverage(cov, nowTs(), vSec, 1500, spanStart)) return;
+  const wStart=Math.max(spanStart, nowTs()-1500*vSec);
+  const wEnd=Math.min(spanEnd, nowTs()+1000*vSec);          // fetch a forward buffer (cached, not shown)
+  try{
+    const res=await fetchTFRange(S.source,S.symbol,tf, wStart*1000, wEnd*1000);
+    S._tf[tf]=dedupeSorted([...(S._tf[tf]||[]), ...res.candles]);
+    const ns=cov?Math.min(cov.start,wStart):wStart, ne=cov?Math.max(cov.end,wEnd):wEnd;
+    S._cov[tf]={start:ns,end:ne};
+    if(res.truncated) S._trunc[tf]=true;
+  }catch(e){ if(!S._tf[tf]) throw e; }
 }
 function visibleForView(){
   const tf=S.viewTF;
@@ -644,13 +712,20 @@ function updatePositionLines(){
 function curCandle(){ return S? S._candles[S.cursor] : null; }
 function atEnd(){ return S && S.cursor>=S._candles.length-1; }
 
+function isFetchedTF(tf){ const v=tfSeconds(tf),e=tfSeconds(S.interval); return tf!==S.interval && !(v>e && v%e===0); }
+function maybeExtendCoverage(){
+  if(!S || !isFetchedTF(S.viewTF) || fetchingTF) return;
+  const tf=S.viewTF, vSec=tfSeconds(tf), spanStart=S._candles[0].time;
+  if(!needsCoverage(S._cov[tf], nowTs(), vSec, 1500, spanStart)) return;
+  fetchingTF=true;
+  ensureFinerCoverage(tf).then(()=>{ if(S&&S.viewTF===tf) renderView(false); }).catch(()=>{}).finally(()=>{ fetchingTF=false; });
+}
 function stepForward(){
   if(!S || atEnd()) return;
   S.cursor++;
   const c=curCandle();
-  // refresh the visible chart for the new replay moment
   if(S.viewTF===S.interval){ series.update(c); viewData.push(c); }
-  else { renderView(false); }
+  else { renderView(false); maybeExtendCoverage(); }
   // process open-position stop on the newly revealed execution bar
   if(S.position){
     const hit=checkStop(S.position.side, c, S.position.sl, S.position.tp);
@@ -942,8 +1017,8 @@ async function resumeSession(id){
   if(!rec){ alert('Oturum bulunamadı.'); return; }
   setBusy(true,'Veri yükleniyor…');
   try{
-    const candles=await fetchExec(rec.source,rec.symbol,rec.interval,rec.depth,rec.startTime);
-    S={...rec,_candles:candles,_tf:{},_trunc:{}};
+    const candles=await loadExec(rec.source,rec.symbol,rec.interval,rec.depth,rec.startTime);
+    S={...rec,_candles:candles,_tf:{},_cov:{},_trunc:{}};
     if(!S.viewTF) S.viewTF=S.interval;
     if(S.cursor>=candles.length) S.cursor=candles.length-1;
     $('chartEmpty').style.display='none';
@@ -962,8 +1037,7 @@ function closeModal(){ $('scrim').classList.remove('on'); }
 function setBusy(on,msg){ $('nsCreate').disabled=on; $('nsCreate').textContent=on?'Yükleniyor…':'Oluştur & başla'; if(msg){$('nsStatus').textContent=msg;$('nsStatus').className='ns-status';} }
 
 async function createSession(){
-  const sd=$('nsStartDate').value;
-  const startTime = sd ? Date.parse(sd+'T00:00:00Z') : undefined;
+  const period=$('nsPeriod').value;
   const cfg={
     name:$('nsName').value.trim()||($('nsSymbol').value.trim()+' oturumu'),
     source:$('nsSource').value, symbol:$('nsSymbol').value.trim().toUpperCase(),
@@ -973,9 +1047,12 @@ async function createSession(){
     startMode:$('nsStart').value,
   };
   if(!cfg.symbol){ $('nsStatus').textContent='Sembol gir.'; $('nsStatus').className='ns-status error'; return; }
+  let startTime;
+  if(period==='random') startTime=computeRandomStart(cfg.interval,cfg.depth);
+  else if(period==='date'){ const v=$('nsStartDate').value; if(!v){ $('nsStatus').textContent='Tarih seç ya da farklı dönem seç.'; $('nsStatus').className='ns-status error'; return; } startTime=Date.parse(v+'T00:00:00Z'); }
   setBusy(true);
   try{
-    const candles=await fetchExec(cfg.source,cfg.symbol,cfg.interval,cfg.depth,startTime);
+    const candles=await loadExec(cfg.source,cfg.symbol,cfg.interval,cfg.depth,startTime);
     if(candles.length<60) throw new Error('Yeterli veri yok.');
     let startIndex;
     if(cfg.startMode==='random'){
@@ -1003,6 +1080,11 @@ function wire(){
   $('btnNew').onclick=openModal;
   $('nsCancel').onclick=closeModal;
   $('nsCreate').onclick=createSession;
+  $('nsPeriod').onchange=()=>{
+    const v=$('nsPeriod').value;
+    $('nsDateWrap').style.display = v==='date' ? 'block' : 'none';
+    if(v==='random') $('nsBlind').value='on';   // random date is meant for blind practice
+  };
   $('scrim').onclick=e=>{ if(e.target===$('scrim')) closeModal(); };
 
   $('btnNext').onclick=()=>stepForward();

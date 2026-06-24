@@ -179,6 +179,34 @@
     .bottom{grid-template-columns:1fr}
     #chart{height:360px}
   }
+
+  /* ---------- design polish ---------- */
+  .app{position:relative}
+  .app::before{content:"";position:fixed;top:0;left:0;right:0;height:2px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:.5;z-index:5}
+  .brand{font-size:14px}
+  .mark{box-shadow:0 0 0 4px rgba(240,180,41,.08)}
+  .panel{box-shadow:0 1px 0 rgba(255,255,255,.03) inset, 0 8px 24px -16px rgba(0,0,0,.7)}
+  .panel-h{font-size:10.5px}
+  .btn:focus-visible,.tf-btn:focus-visible,.toggle input:focus-visible,
+  .field input:focus-visible,.field select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  #btnNext{padding:9px 22px;font-size:14px;box-shadow:0 6px 18px -8px rgba(240,180,41,.6)}
+  #btnNext:not(:disabled):hover{filter:brightness(1.07)}
+  .tf-hint{font-size:10.5px;color:var(--muted2);margin-left:auto;font-style:italic;letter-spacing:.01em}
+  .tf-btn{transition:transform .1s, background .12s, border-color .12s, color .12s}
+  .tf-btn.active{box-shadow:0 4px 14px -6px rgba(240,180,41,.7)}
+  .stat{transition:background .12s}
+  .stat:hover{background:var(--panel2)}
+  .sess{transition:border-color .12s, transform .1s}
+  .sess:hover{transform:translateX(2px)}
+  .replay-info .v{letter-spacing:-.01em}
+  .chart-empty h3{font-size:18px;letter-spacing:-.01em}
+  .upnl{letter-spacing:-.02em}
+  ::selection{background:rgba(240,180,41,.3)}
+  /* subtle scrollbars */
+  .log-scroll::-webkit-scrollbar,.tape::-webkit-scrollbar{height:8px;width:8px}
+  .log-scroll::-webkit-scrollbar-thumb,.tape::-webkit-scrollbar-thumb{background:var(--line2);border-radius:8px}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
 <body>
@@ -404,7 +432,7 @@ function computeStats(trades, startingBalance){
     else if(t.pnl<0){losses++;gl+=-t.pnl;sumLossR+=t.rMultiple;}
     else be++;
     bestR=Math.max(bestR,t.rMultiple); worstR=Math.min(worstR,t.rMultiple);
-    bars+=(t.exitIndex-t.entryIndex);
+    bars+=(t.bars||0);
   }
   let eq=startingBalance,peak=startingBalance,maxDD=0;
   for(const t of trades){eq+=t.pnl;peak=Math.max(peak,eq);maxDD=Math.max(maxDD,(peak-eq)/peak);}
@@ -431,6 +459,12 @@ function aggregate(base, vSec){
 function visibleUpTo(arr, vSec, now){ return arr.filter(c=> c.time+vSec<=now); }
 // largest time in sorted list <= t (for snapping markers onto a coarser TF)
 function snapTime(t, times){ let lo=0,hi=times.length-1,res=null; while(lo<=hi){const m=(lo+hi)>>1; if(times[m]<=t){res=times[m];lo=m+1;}else hi=m-1;} return res; }
+// first bar (in ascending list) whose close time (open+vSec) is strictly after `now`
+function findNextClose(full, vSec, now){
+  let lo=0,hi=full.length-1,res=-1;
+  while(lo<=hi){ const m=(lo+hi)>>1; if(full[m].time+vSec>now){res=m;hi=m-1;} else lo=m+1; }
+  return res<0?null:{bar:full[res], close:full[res].time+vSec};
+}
 function tfLabel(tf){ return {'5m':'5dk','15m':'15dk','1h':'1s','4h':'4s','1d':'1g'}[tf]||tf; }
 
 /* ---------- helpers ---------- */
@@ -578,15 +612,18 @@ let S=null;            // active session object
 let chart=null, series=null, priceLines=[], pendingSide=null;
 let viewData=[];       // candles currently shown (for marker snapping)
 let fetchingTF=false;  // guard for async finer-TF coverage fetches
+let stepping=false;    // guard so rapid clicks/keys don't overlap a step
 let saveTimer=null;
 
 function emptySession(cfg, candles, startIndex){
+  const baseSec=tfSeconds(cfg.interval);
+  const startNow=candles[startIndex].time+baseSec;   // reveal up to & including bar[startIndex]
   return {
     id:uid(), name:cfg.name||'Adsız oturum', createdAt:Date.now(), updatedAt:Date.now(),
     source:cfg.source, symbol:cfg.symbol, interval:cfg.interval, depth:cfg.depth,
     startTime:candles[0].time*1000, blind:cfg.blind, viewTF:cfg.interval,
     startingBalance:cfg.balance, balance:cfg.balance, riskPct:cfg.risk,
-    startIndex, cursor:startIndex, trades:[], position:null,
+    startNow, nowTs:startNow, trades:[], position:null,
     _candles:candles, _tf:{}, _cov:{}, _trunc:{}   // underscore keys are not persisted
   };
 }
@@ -610,11 +647,15 @@ function initChart(){
   ro.observe(el);
 }
 
-/* ---------- multi-timeframe view engine ----------
-   Execution TF (S.interval) is the replay clock + where trades fill.
-   Any other TF is a synced, read-only analysis view: shows only the
-   candles that are fully CLOSED as of the current replay moment. */
-function nowTs(){ return S._candles[S.cursor].time + tfSeconds(S.interval); }
+/* ---------- multi-timeframe replay engine ----------
+   The replay clock is a single timestamp S.nowTs. You step on whatever TF
+   you're viewing: one step reveals the next bar of THAT timeframe and SL/TP
+   are checked against it. Higher TFs are derived from the base; finer TFs are
+   fetched in a window around the current moment. Only fully-closed bars show. */
+function nowTs(){ return S.nowTs; }
+function spanEnd(){ const a=S._candles; return a[a.length-1].time + tfSeconds(S.interval); }
+function fullForView(){ const tf=S.viewTF; return (tf===S.interval)?S._candles:(S._tf[tf]||[]); }
+function canStep(){ return !!S && S.nowTs < spanEnd()-0.5; }
 
 async function getTFFull(tf){
   if(tf===S.interval) return S._candles;
@@ -653,7 +694,7 @@ async function setView(tf, opt={}){
   if(!S) return;
   try{ await getTFFull(tf); }catch(e){ alert('Periyot verisi yüklenemedi: '+e.message); return; }
   S.viewTF=tf;
-  renderView(!!opt.fit); renderTFBar(); scheduleSave();
+  renderView(!!opt.fit); render(); scheduleSave();
 }
 function renderView(fit){
   if(!S) return;
@@ -682,14 +723,14 @@ function rebuildMarkers(){
   const snap=t=>snapTime(t,times);
   const m=[];
   for(const t of S.trades){
-    const et=snap(S._candles[t.entryIndex].time), xt=snap(S._candles[t.exitIndex].time);
+    const et=snap(t.entryTime), xt=snap(t.exitTime);
     if(et!=null) m.push({time:et, position:t.side==='long'?'belowBar':'aboveBar',
       color:t.side==='long'?'#26a69a':'#ef5350', shape:t.side==='long'?'arrowUp':'arrowDown', text:t.side==='long'?'L':'S'});
     if(xt!=null) m.push({time:xt, position:t.side==='long'?'aboveBar':'belowBar',
-      color:t.reason==='tp'?'#2ebd85':t.reason==='sl'?'#f6465d':'#8a93a8', shape:'circle', text:t.reason.toUpperCase()});
+      color:t.reason==='tp'?'#2ebd85':t.reason==='sl'?'#f6465d':'#8a93a8', shape:'circle', text:(t.exitReason||'').toUpperCase()});
   }
   if(S.position){
-    const et=snap(S._candles[S.position.entryIndex].time);
+    const et=snap(S.position.entryTime);
     if(et!=null) m.push({time:et, position:S.position.side==='long'?'belowBar':'aboveBar',
       color:'#f0b429', shape:S.position.side==='long'?'arrowUp':'arrowDown', text:S.position.side==='long'?'L':'S'});
   }
@@ -709,8 +750,8 @@ function updatePositionLines(){
 /* ============================================================
    REPLAY
    ============================================================ */
-function curCandle(){ return S? S._candles[S.cursor] : null; }
-function atEnd(){ return S && S.cursor>=S._candles.length-1; }
+function curBar(){ if(!S) return null; return viewData.length?viewData[viewData.length-1]:null; }
+function atEnd(){ return !canStep(); }
 
 function isFetchedTF(tf){ const v=tfSeconds(tf),e=tfSeconds(S.interval); return tf!==S.interval && !(v>e && v%e===0); }
 function maybeExtendCoverage(){
@@ -720,22 +761,31 @@ function maybeExtendCoverage(){
   fetchingTF=true;
   ensureFinerCoverage(tf).then(()=>{ if(S&&S.viewTF===tf) renderView(false); }).catch(()=>{}).finally(()=>{ fetchingTF=false; });
 }
-function stepForward(){
-  if(!S || atEnd()) return;
-  S.cursor++;
-  const c=curCandle();
-  if(S.viewTF===S.interval){ series.update(c); viewData.push(c); }
-  else { renderView(false); maybeExtendCoverage(); }
-  // process open-position stop on the newly revealed execution bar
-  if(S.position){
-    const hit=checkStop(S.position.side, c, S.position.sl, S.position.tp);
-    if(hit) closePosition(hit.price, hit.reason);
-  }
-  rebuildMarkers();
-  S.updatedAt=Date.now();
-  renderReplay(); render(); scheduleSave();
+async function stepForward(){
+  if(!S || stepping || !canStep()) return;
+  stepping=true;
+  try{
+    const tf=S.viewTF, vSec=tfSeconds(tf);
+    let full=fullForView(), nx=findNextClose(full, vSec, S.nowTs);
+    // finer TF: the next bar may be just beyond what's loaded — fetch ahead
+    if((!nx || nx.close>spanEnd()+0.5) && isFetchedTF(tf) && S.nowTs<spanEnd()){
+      await ensureFinerCoverage(tf); full=fullForView(); nx=findNextClose(full, vSec, S.nowTs);
+    }
+    if(!nx || nx.close>spanEnd()+0.5) return;   // no more fully-closed bars
+    S.nowTs=nx.close;
+    const nb=nx.bar;
+    series.update(nb); viewData.push(nb);        // reveal exactly one new bar of the viewed TF
+    if(S.position){
+      const hit=checkStop(S.position.side, nb, S.position.sl, S.position.tp);
+      if(hit) closePosition(hit.price, hit.reason, nb.time);
+    }
+    rebuildMarkers();
+    if(isFetchedTF(tf)) maybeExtendCoverage();
+    S.updatedAt=Date.now();
+    renderReplay(); render(); scheduleSave();
+  } finally { stepping=false; }
 }
-function stepN(n){ for(let i=0;i<n;i++){ if(atEnd())break; stepForward(); } }
+async function stepN(n){ for(let i=0;i<n;i++){ if(!canStep())break; await stepForward(); } }
 
 /* ============================================================
    TRADES
@@ -743,8 +793,9 @@ function stepN(n){ for(let i=0;i<n;i++){ if(atEnd())break; stepForward(); } }
 function openPositionFlow(side){
   if(!S){ return; }
   if(S.position){ flashErr('Önce açık pozisyonu kapat.'); return; }
+  const cur=curBar(); if(!cur){ flashErr('Bu periyotta henüz kapanmış mum yok — ilerle.'); return; }
   pendingSide=side;
-  const entry=curCandle().close;
+  const entry=cur.close;
   $('entryBtns').style.display='none';
   $('entryForm').style.display='block';
   $('efEntry').value=(side==='long'?'▲ LONG':'▼ SHORT')+'   @ '+fmtPrice(entry);
@@ -755,7 +806,7 @@ function openPositionFlow(side){
 }
 function cancelEntry(){ pendingSide=null; $('entryForm').style.display='none'; $('entryBtns').style.display='grid'; }
 function updateDerived(){
-  const entry=curCandle()?curCandle().close:0;
+  const cur=curBar(); const entry=cur?cur.close:0;
   const sl=parseFloat($('efSL').value), tp=parseFloat($('efTP').value);
   const riskAmt=S.balance*(S.riskPct/100);
   const box=$('efDerived'); box.innerHTML='';
@@ -775,7 +826,8 @@ function updateDerived(){
 }
 function flashErr(m){ const e=$('efErr'); e.textContent=m; setTimeout(()=>{if(e.textContent===m)e.textContent='';},2500); }
 function confirmEntry(){
-  const entry=curCandle().close;
+  const cur=curBar(); if(!cur){ flashErr('Mum yok — ilerle.'); return; }
+  const entry=cur.close;
   const sl=parseFloat($('efSL').value);
   const tpRaw=$('efTP').value.trim();
   const tp=tpRaw===''?null:parseFloat(tpRaw);
@@ -788,20 +840,21 @@ function confirmEntry(){
     const rr=computeR(pendingSide,entry,tp,sl);
     if(rr==null||rr<=0){ flashErr('Hedef yanlış tarafta.'); return; }
   }
-  S.position={side:pendingSide,entryPrice:entry,entryTime:curCandle().time,entryIndex:S.cursor,
+  S.position={side:pendingSide,entryPrice:entry,entryTime:cur.time,tf:S.viewTF,
     sl,tp,size,riskAmount:riskAmt,notes:''};
   cancelEntry();
   updatePositionLines(); rebuildMarkers();
   S.updatedAt=Date.now(); render(); scheduleSave();
 }
-function closePosition(exitPrice, reason){
+function closePosition(exitPrice, reason, exitTime){
   if(!S||!S.position) return;
   const p=S.position;
   const pnl=computePnl(p.side,p.entryPrice,exitPrice,p.size);
   const r=computeR(p.side,p.entryPrice,exitPrice,p.sl);
   S.balance+=pnl;
-  S.trades.push({id:uid(),side:p.side,entryPrice:p.entryPrice,entryTime:p.entryTime,entryIndex:p.entryIndex,
-    exitPrice,exitTime:curCandle().time,exitIndex:S.cursor,sl:p.sl,tp:p.tp,size:p.size,
+  const bars=Math.max(1, Math.round((exitTime-p.entryTime)/tfSeconds(p.tf||S.interval)));
+  S.trades.push({id:uid(),side:p.side,entryPrice:p.entryPrice,entryTime:p.entryTime,
+    exitPrice,exitTime,sl:p.sl,tp:p.tp,size:p.size,tf:p.tf||S.interval,bars,
     riskAmount:p.riskAmount,pnl,rMultiple:r,exitReason:reason,balanceAfter:S.balance,notes:p.notes||''});
   S.position=null;
   clearLines(); rebuildMarkers();
@@ -809,28 +862,31 @@ function closePosition(exitPrice, reason){
 }
 function manualClose(){
   if(!S||!S.position) return;
-  closePosition(curCandle().close,'manual');
+  const cur=curBar(); if(!cur) return;
+  closePosition(cur.close,'manual',cur.time);
 }
 
 /* ============================================================
    RENDER
    ============================================================ */
-function render(){ renderHeader(); renderTFBar(); renderPosition(); renderStats(); renderTape(); renderLog(); renderEquity(); }
+function render(){ renderHeader(); renderTFBar(); renderReplay(); renderPosition(); renderStats(); renderTape(); renderLog(); renderEquity(); }
 
 function renderTFBar(){
   const bar=$('tfBar'); if(!bar) return;
   if(!S){ bar.innerHTML=''; return; }
   const set=new Set(['15m','1h','4h','1d', S.interval]);
   const list=[...set].filter(tf=>TF_SEC[tf]).sort((a,b)=>TF_SEC[a]-TF_SEC[b]);
-  bar.innerHTML='<span class="tf-label">Görünüm</span>';
+  bar.innerHTML='<span class="tf-label">Periyot</span>';
   list.forEach(tf=>{
     const b=document.createElement('button');
     b.className='tf-btn'+(tf===S.viewTF?' active':'')+(tf===S.interval?' exec':'');
     b.textContent=tfLabel(tf);
-    b.title=tf===S.interval?'Motor periyot — işlemler bu periyotta dolar':'Analiz görünümü — bu ana kadar kapanmış mumlar';
+    b.title=(tf===S.interval?'Ana (yüklü) periyot. ':'')+'Bu periyoda geç — "İleri" bir '+tfLabel(tf)+' mum ilerletir, SL/TP bu mumlara göre dolar';
     b.onclick=()=>setView(tf,{fit:true});
     bar.appendChild(b);
   });
+  const hint=document.createElement('span'); hint.className='tf-hint'; hint.textContent='“İleri” seçili periyotta ilerler';
+  bar.appendChild(hint);
   if(S._trunc && S._trunc[S.viewTF]){
     const w=document.createElement('span'); w.className='tf-warn'; w.textContent='eski veri kısıtlı'; bar.appendChild(w);
   }
@@ -853,22 +909,24 @@ function renderHeader(){
 }
 function renderReplay(){
   if(!S){ $('riBar').textContent='—';$('riTime').textContent='—';$('riPrice').textContent='—';$('riProg').style.width='0';return; }
-  const total=S._candles.length, pos=S.cursor+1;
-  $('riBar').textContent=pos+' / '+total;
-  $('riTime').textContent=S.blind?('#'+(S.cursor-S.startIndex)):fmtTime(curCandle().time);
-  $('riPrice').textContent=fmtPrice(curCandle().close);
-  $('riProg').style.width=(pos/total*100)+'%';
+  const vis=visibleForView(); const cur=vis[vis.length-1];
+  $('riBar').textContent = (S.blind?'#':'')+vis.length+' · '+tfLabel(S.viewTF);
+  $('riTime').textContent = cur ? (S.blind?('#'+vis.length):fmtTime(cur.time)) : '—';
+  $('riPrice').textContent = cur ? fmtPrice(cur.close) : '—';
+  const frac=(S.nowTs - S.startNow)/Math.max(1,(spanEnd()-S.startNow));
+  $('riProg').style.width=Math.max(0,Math.min(1,frac))*100+'%';
   const end=atEnd();
   $('btnNext').disabled=end; $('btnNext10').disabled=end;
 }
 function renderPosition(){
   const open=!!(S&&S.position);
   $('posCard').style.display=open?'block':'none';
-  const canTrade=!!S && !atEnd();
+  const cur=curBar();
+  const canTrade=!!S && !!cur && S.nowTs<spanEnd();
   $('btnLong').disabled=!canTrade||open||pendingSide!=null;
   $('btnShort').disabled=!canTrade||open||pendingSide!=null;
-  if(!open) return;
-  const p=S.position, c=curCandle().close;
+  if(!open||!cur) return;
+  const p=S.position, c=cur.close;
   const upnl=computePnl(p.side,p.entryPrice,c,p.size);
   const ur=computeR(p.side,p.entryPrice,c,p.sl);
   $('posCard').innerHTML=`
@@ -933,7 +991,7 @@ function renderLog(){
       <td class="${cls(tr.rMultiple)}">${fmtR(tr.rMultiple)}</td>
       <td class="${cls(tr.pnl)}">${fmtMoney(tr.pnl)}</td>
       <td><span class="tag ${tr.exitReason}">${tr.exitReason.toUpperCase()}</span></td>
-      <td>${tr.exitIndex-tr.entryIndex}</td>
+      <td>${tr.bars||1}</td>
       <td></td>`;
     const noteTd=row.lastElementChild;
     const inp=document.createElement('input'); inp.className='log-note'; inp.value=tr.notes||''; inp.placeholder='not ekle…';
@@ -1020,7 +1078,18 @@ async function resumeSession(id){
     const candles=await loadExec(rec.source,rec.symbol,rec.interval,rec.depth,rec.startTime);
     S={...rec,_candles:candles,_tf:{},_cov:{},_trunc:{}};
     if(!S.viewTF) S.viewTF=S.interval;
-    if(S.cursor>=candles.length) S.cursor=candles.length-1;
+    const baseSec=tfSeconds(S.interval);
+    const eStart=candles[0].time+baseSec, eEnd=candles[candles.length-1].time+baseSec;
+    if(S.startNow==null) S.startNow = (rec.startIndex!=null && candles[rec.startIndex]) ? candles[rec.startIndex].time+baseSec : eStart;
+    if(S.nowTs==null) S.nowTs = (rec.cursor!=null && candles[rec.cursor]) ? candles[rec.cursor].time+baseSec : S.startNow;
+    S.nowTs=Math.max(eStart, Math.min(S.nowTs, eEnd));      // clamp into loaded span
+    // migrate any legacy trades that stored indices instead of times
+    (S.trades||[]).forEach(t=>{
+      if(t.entryTime==null && t.entryIndex!=null && candles[t.entryIndex]) t.entryTime=candles[t.entryIndex].time;
+      if(t.exitTime==null && t.exitIndex!=null && candles[t.exitIndex]) t.exitTime=candles[t.exitIndex].time;
+      if(t.bars==null && t.exitIndex!=null && t.entryIndex!=null) t.bars=Math.max(1,t.exitIndex-t.entryIndex);
+      if(t.tf==null) t.tf=S.interval;
+    });
     $('chartEmpty').style.display='none';
     cancelEntry();
     await drawAll(); renderReplay(); render(); renderSessions();

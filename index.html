@@ -73,17 +73,19 @@
   #drawLayer{position:absolute;inset:0;pointer-events:none;z-index:3;border-radius:var(--r) var(--r) 0 0}
   #drawLayer.armed{pointer-events:auto;cursor:crosshair}
   #drawLayer.erasing{pointer-events:auto;cursor:not-allowed}
-  .draw-tools{position:absolute;top:10px;right:12px;z-index:4;display:flex;align-items:center;gap:3px;
-    background:rgba(10,10,13,.86);border:1px solid var(--line);border-radius:9px;padding:4px;backdrop-filter:blur(6px)}
+  .draw-tools{position:absolute;top:8px;left:8px;z-index:4;display:flex;flex-direction:column;align-items:center;gap:2px;
+    background:rgba(10,10,13,.9);border:1px solid var(--line);border-radius:9px;padding:4px;backdrop-filter:blur(6px);box-shadow:0 8px 24px -12px #000}
   .draw-tools.hidden{display:none}
-  .dt{width:28px;height:28px;display:grid;place-items:center;background:transparent;border:1px solid transparent;border-radius:6px;
-    color:var(--muted);font-size:14px;cursor:pointer;font-family:var(--mono);transition:.12s;padding:0;line-height:1}
-  .dt:hover{color:var(--txt);border-color:var(--line2)}
+  .dt{width:30px;height:30px;display:grid;place-items:center;background:transparent;border:1px solid transparent;border-radius:7px;
+    color:var(--muted);cursor:pointer;transition:.12s;padding:0}
+  .dt svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+  .dt[data-tool="select"] svg{fill:currentColor;stroke-width:1}
+  .dt:hover{color:var(--txt);background:rgba(255,255,255,.04)}
   .dt.active{background:rgba(201,168,76,.16);border-color:var(--accent-dim);color:var(--accent)}
-  .dt-sep{width:1px;height:18px;background:var(--line);margin:0 2px}
-  .dt-colors{display:flex;gap:3px}
-  .dt-sw{width:15px;height:15px;border-radius:50%;border:1.5px solid transparent;cursor:pointer}
-  .dt-sw.active{border-color:var(--txt);box-shadow:0 0 0 2px rgba(0,0,0,.4)}
+  .dt-sep{width:20px;height:1px;background:var(--line);margin:3px 0}
+  .dt-colors{display:flex;flex-direction:column;gap:4px;align-items:center}
+  .dt-sw{width:16px;height:16px;border-radius:50%;border:2px solid transparent;cursor:pointer;box-sizing:border-box}
+  .dt-sw.active{border-color:var(--txt);box-shadow:0 0 0 2px rgba(0,0,0,.5)}
   .chart-empty{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);padding:30px}
   .chart-empty h3{color:var(--txt);margin:0 0 6px;font-weight:600}
   .blind-tag{position:absolute;top:10px;left:12px;background:rgba(201,168,76,.14);border:1px solid var(--accent-dim);color:var(--accent);font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;letter-spacing:.08em;display:none}
@@ -254,17 +256,25 @@
         <div id="chart"></div>
         <canvas id="drawLayer"></canvas>
         <div class="draw-tools hidden" id="drawTools">
-          <button class="dt" data-tool="select" title="İmleç / pan (V)">✛</button>
-          <button class="dt" data-tool="trend" title="Trend çizgisi (T)">╱</button>
-          <button class="dt" data-tool="hline" title="Yatay çizgi (H)">─</button>
-          <button class="dt" data-tool="rect" title="Kutu (R)">▭</button>
-          <button class="dt" data-tool="fib" title="Fibonacci (F)">𝆑</button>
+          <button class="dt" data-tool="select" title="İmleç (V)" aria-label="İmleç">
+            <svg viewBox="0 0 24 24"><path d="M6 4l13 7-5.5 1.5L11 19z"/></svg></button>
+          <button class="dt" data-tool="trend" title="Trend çizgisi (T)" aria-label="Trend">
+            <svg viewBox="0 0 24 24"><line x1="5" y1="18" x2="19" y2="6"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="6" r="2"/></svg></button>
+          <button class="dt" data-tool="hline" title="Yatay çizgi (H)" aria-label="Yatay">
+            <svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><circle cx="12" cy="12" r="2"/></svg></button>
+          <button class="dt" data-tool="rect" title="Kutu (R)" aria-label="Kutu">
+            <svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="1"/></svg></button>
+          <button class="dt" data-tool="fib" title="Fibonacci (F)" aria-label="Fibonacci">
+            <svg viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="10" x2="20" y2="10"/><line x1="4" y1="14" x2="20" y2="14"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
           <span class="dt-sep"></span>
           <span class="dt-colors" id="dtColors"></span>
           <span class="dt-sep"></span>
-          <button class="dt" data-tool="erase" title="Sil modu — çizime tıkla">⌫</button>
-          <button class="dt" id="dtUndo" title="Son çizimi geri al">↺</button>
-          <button class="dt" id="dtClear" title="Tümünü temizle">🗑</button>
+          <button class="dt" data-tool="erase" title="Sil modu — çizime tıkla" aria-label="Sil modu">
+            <svg viewBox="0 0 24 24"><path d="M7 18h10"/><path d="M5.5 15.5l7-7 4 4-5 5h-3.5z"/></svg></button>
+          <button class="dt" id="dtUndo" title="Geri al" aria-label="Geri al">
+            <svg viewBox="0 0 24 24"><path d="M9 7h6a4 4 0 0 1 0 8H8"/><path d="M9 4 6 7l3 3"/></svg></button>
+          <button class="dt" id="dtClear" title="Tümünü temizle" aria-label="Temizle">
+            <svg viewBox="0 0 24 24"><path d="M5 7h14"/><path d="M9 7V5h6v2"/><path d="M7 7l1 12h8l1-12"/></svg></button>
         </div>
         <div class="blind-tag">KÖR MOD</div>
         <div class="sym-tag" id="symTag" style="display:none"></div>
@@ -648,6 +658,7 @@ let viewData=[];       // candles currently shown (for marker snapping)
 let fetchingTF=false;  // guard for async finer-TF coverage fetches
 let stepping=false;    // guard so rapid clicks/keys don't overlap a step
 let drawCanvas=null, dctx=null, drawTool='select', drawColor='#c9a84c', drawDrag=null;
+let selectedDraw=null, hoverDraw=null, editDrag=null;
 let saveTimer=null;
 
 function emptySession(cfg, candles, startIndex){
@@ -823,28 +834,34 @@ function dLabel(ctx,x,y,text,align,color){
   ctx.fillStyle=color||'#e2e2e2'; ctx.textAlign='left'; ctx.fillText(text,lx+4,y); ctx.restore();
 }
 const FIB_R=[0,0.236,0.382,0.5,0.618,0.786,1];
-function drawFib(d,ctx){
+function fibPrice(d,r){ return d.p1.price+(d.p2.price-d.p1.price)*r; }
+function drawFib(d,ctx,emph){
   const x1=timeToX(d.p1.time),y1=priceToY(d.p1.price),x2=timeToX(d.p2.time),y2=priceToY(d.p2.price);
   if([x1,y1,x2,y2].some(v=>v==null)) return;
   const xL=Math.min(x1,x2), xR=paneW();
+  const yAt=r=>priceToY(fibPrice(d,r));
   ctx.save();
-  ctx.setLineDash([]); ctx.lineWidth=1; ctx.strokeStyle=hexA(d.color,0.4);
+  // tinted bands between consecutive levels (golden pocket .382–.618 stronger)
+  for(let i=0;i<FIB_R.length-1;i++){
+    const ya=yAt(FIB_R[i]), yb=yAt(FIB_R[i+1]); if(ya==null||yb==null) continue;
+    const pocket = FIB_R[i]>=0.382 && FIB_R[i+1]<=0.618;
+    const c = pocket?'#c9a84c' : (i%2?'#1D9E75':'#4a90d9');
+    ctx.fillStyle=hexA(c, pocket?0.12:0.05);
+    ctx.fillRect(xL,Math.min(ya,yb),xR-xL,Math.abs(yb-ya));
+  }
+  ctx.setLineDash([]); ctx.lineWidth=emph?1.6:1; ctx.strokeStyle=hexA(d.color,0.5);
   ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke();   // connector
-  // golden pocket shade (.382 - .618)
-  const yA=priceToY(d.p1.price+(d.p2.price-d.p1.price)*0.382);
-  const yB=priceToY(d.p1.price+(d.p2.price-d.p1.price)*0.618);
-  if(yA!=null&&yB!=null){ ctx.fillStyle=hexA('#c9a84c',0.07); ctx.fillRect(xL,Math.min(yA,yB),xR-xL,Math.abs(yB-yA)); }
   FIB_R.forEach(r=>{
-    const price=d.p1.price+(d.p2.price-d.p1.price)*r; const y=priceToY(price); if(y==null) return;
-    const col = (r===0||r===1)?'#888888' : (r===0.618)?'#1D9E75' : (r===0.5)?'#c9a84c' : hexA(d.color,0.75);
-    ctx.strokeStyle=col; ctx.lineWidth=(r===0.618||r===0.5)?1.2:0.8;
+    const y=yAt(r); if(y==null) return;
+    const col=(r===0||r===1)?'#9a9a9a':(r===0.618)?'#1D9E75':(r===0.5)?'#c9a84c':hexA(d.color,0.85);
+    ctx.strokeStyle=col; ctx.lineWidth=(r===0.5||r===0.618)?1.3:0.8;
     ctx.beginPath(); ctx.moveTo(xL,y); ctx.lineTo(xR,y); ctx.stroke();
-    dLabel(ctx,xL+2,y,(r*100).toFixed(1)+'%  '+fmtPrice(price),'left',col);
+    dLabel(ctx,xR-2,y,(r*100).toFixed(1)+'  '+fmtPrice(fibPrice(d,r)),'right',col);
   });
   ctx.restore();
 }
-function drawOne(d,ctx,preview){
-  ctx.save(); ctx.lineWidth=preview?1:1.4; ctx.strokeStyle=d.color||drawColor; ctx.setLineDash(preview?[4,4]:[]);
+function drawOne(d,ctx,preview,emph){
+  ctx.save(); ctx.lineWidth=preview?1:(emph?2:1.4); ctx.strokeStyle=d.color||drawColor; ctx.setLineDash(preview?[5,4]:[]);
   if(d.type==='hline'){
     const y=priceToY(d.price); if(y==null){ctx.restore();return;}
     ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(paneW(),y); ctx.stroke();
@@ -857,17 +874,26 @@ function drawOne(d,ctx,preview){
     const x1=timeToX(d.p1.time),y1=priceToY(d.p1.price),x2=timeToX(d.p2.time),y2=priceToY(d.p2.price);
     if([x1,y1,x2,y2].some(v=>v==null)){ctx.restore();return;}
     const x=Math.min(x1,x2),y=Math.min(y1,y2),w=Math.abs(x2-x1),h=Math.abs(y2-y1);
-    ctx.fillStyle=hexA(d.color,0.10); ctx.fillRect(x,y,w,h); ctx.strokeRect(x,y,w,h);
-  } else if(d.type==='fib'){ drawFib(d,ctx); }
+    ctx.fillStyle=hexA(d.color,emph?0.14:0.10); ctx.fillRect(x,y,w,h); ctx.strokeRect(x,y,w,h);
+  } else if(d.type==='fib'){ drawFib(d,ctx,emph); }
   ctx.restore();
+}
+function drawHandlesFor(d,ctx){
+  const pts=[];
+  if(d.type==='hline'){ const y=priceToY(d.price); if(y!=null) pts.push([paneW()-16,y]); }
+  else { const x1=timeToX(d.p1.time),y1=priceToY(d.p1.price),x2=timeToX(d.p2.time),y2=priceToY(d.p2.price);
+    if(x1!=null&&y1!=null)pts.push([x1,y1]); if(x2!=null&&y2!=null)pts.push([x2,y2]); }
+  pts.forEach(([x,y])=>{ ctx.save(); ctx.beginPath(); ctx.arc(x,y,4.5,0,Math.PI*2); ctx.fillStyle='#0a0a0d'; ctx.fill();
+    ctx.lineWidth=1.7; ctx.strokeStyle=d.color||drawColor; ctx.stroke(); ctx.restore(); });
 }
 function dragToDrawing(dd){ return {type:dd.tool, p1:dd.p1, p2:dd.p2, color:drawColor}; }
 function redrawDrawings(){
   if(!dctx||!drawCanvas) return;
   dctx.clearRect(0,0,drawCanvas.clientWidth,drawCanvas.clientHeight);
   if(!S) return;
-  (S.drawings||[]).forEach(d=>drawOne(d,dctx,false));
-  if(drawDrag){ const d=dragToDrawing(drawDrag); if(d) drawOne(d,dctx,true); }
+  (S.drawings||[]).forEach(d=>drawOne(d,dctx,false, d===selectedDraw||d===hoverDraw));
+  if(drawDrag){ const d=dragToDrawing(drawDrag); drawOne(d,dctx,true,false); }
+  if(selectedDraw && (S.drawings||[]).indexOf(selectedDraw)>=0) drawHandlesFor(selectedDraw,dctx);
 }
 function hitTest(px,py){
   const ds=(S&&S.drawings)||[];
@@ -881,43 +907,107 @@ function hitTest(px,py){
   }
   return -1;
 }
+function handleHit(x,y,d){
+  const r=8;
+  if(d.type==='hline'){ const hy=priceToY(d.price); return (hy!=null&&Math.abs(y-hy)<r&&Math.abs(x-(paneW()-16))<11)?'price':null; }
+  const x1=timeToX(d.p1.time),y1=priceToY(d.p1.price),x2=timeToX(d.p2.time),y2=priceToY(d.p2.price);
+  if([x1,y1,x2,y2].some(v=>v==null)) return null;
+  if(Math.hypot(x-x1,y-y1)<r) return 'p1';
+  if(Math.hypot(x-x2,y-y2)<r) return 'p2';
+  return null;
+}
+function logicalToTime(l){ const a=viewData; if(!a.length) return null; return a[Math.max(0,Math.min(a.length-1,Math.round(l)))].time; }
+function buildMoveOrig(d,sx,sy){
+  const ts=chart.timeScale(); const o={mLog:ts.coordinateToLogical(sx), mPr:yToPrice(sy)};
+  if(d.type==='hline') o.price=d.price;
+  else { o.p1={log:timeToLogical(d.p1.time),price:d.p1.price}; o.p2={log:timeToLogical(d.p2.time),price:d.p2.price}; }
+  return o;
+}
+function applyEdit(x,y){
+  const d=editDrag.d, mode=editDrag.mode;
+  if(mode==='price'){ const pr=yToPrice(y); if(pr!=null) d.price=pr; }
+  else if(mode==='p1'||mode==='p2'){ const t=xToTime(x),pr=yToPrice(y); if(t!=null&&pr!=null) d[mode]={time:t,price:pr}; }
+  else if(mode==='move'){
+    const o=editDrag.orig, ts=chart.timeScale();
+    const dLog=(ts.coordinateToLogical(x)??o.mLog)-o.mLog;
+    const dPr=(yToPrice(y)??o.mPr)-o.mPr;
+    if(d.type==='hline'){ d.price=o.price+dPr; }
+    else { d.p1={time:logicalToTime(o.p1.log+dLog),price:o.p1.price+dPr}; d.p2={time:logicalToTime(o.p2.log+dLog),price:o.p2.price+dPr}; }
+  }
+}
 function localXY(e){ const r=drawCanvas.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+function onWrapMove(e){
+  if(!S || drawTool!=='select' || editDrag) return;
+  const {x,y}=localXY(e); const ds=S.drawings||[];
+  let hit=null, cur='default';
+  for(let i=ds.length-1;i>=0;i--){ const h=handleHit(x,y,ds[i]); if(h){ hit=ds[i]; cur=(h==='price')?'ns-resize':'nwse-resize'; break; } }
+  if(!hit){ const idx=hitTest(x,y); if(idx>=0){ hit=ds[idx]; cur='move'; } }
+  const changed=hit!==hoverDraw; hoverDraw=hit;
+  drawCanvas.style.pointerEvents = hit?'auto':'none';
+  drawCanvas.style.cursor = cur;
+  if(changed) redrawDrawings();
+}
 function onDrawDown(e){
-  if(!S || drawTool==='select') return;
+  if(!S) return;
   const {x,y}=localXY(e);
-  if(drawTool==='erase'){ const i=hitTest(x,y); if(i>=0){ S.drawings.splice(i,1); redrawDrawings(); scheduleSave(); } return; }
+  if(drawTool==='select'){                                   // edit existing
+    const ds=S.drawings||[]; let target=null, mode=null;
+    for(let i=ds.length-1;i>=0;i--){ const h=handleHit(x,y,ds[i]); if(h){ target=ds[i]; mode=h; break; } }
+    if(!target){ const idx=hitTest(x,y); if(idx>=0){ target=ds[idx]; mode='move'; } }
+    if(!target){ selectedDraw=null; redrawDrawings(); return; }
+    selectedDraw=target; editDrag={d:target, mode};
+    if(mode==='move') editDrag.orig=buildMoveOrig(target,x,y);
+    drawCanvas.setPointerCapture && drawCanvas.setPointerCapture(e.pointerId);
+    redrawDrawings(); return;
+  }
+  if(drawTool==='erase'){ const i=hitTest(x,y); if(i>=0){ if(S.drawings[i]===selectedDraw) selectedDraw=null; S.drawings.splice(i,1); redrawDrawings(); scheduleSave(); } return; }
   const pr=yToPrice(y), t=xToTime(x); if(pr==null) return;
-  if(drawTool==='hline'){ (S.drawings=S.drawings||[]).push({type:'hline',price:pr,color:drawColor}); redrawDrawings(); scheduleSave(); setTool('select'); return; }
+  if(drawTool==='hline'){ const nd={type:'hline',price:pr,color:drawColor}; (S.drawings=S.drawings||[]).push(nd); selectedDraw=nd; redrawDrawings(); scheduleSave(); setTool('select'); return; }
   if(t==null) return;
   drawDrag={tool:drawTool, p1:{time:t,price:pr}, p2:{time:t,price:pr}};
   drawCanvas.setPointerCapture && drawCanvas.setPointerCapture(e.pointerId);
 }
-function onDrawMove(e){ if(!drawDrag) return; const {x,y}=localXY(e); const t=xToTime(x),pr=yToPrice(y); if(t!=null&&pr!=null){ drawDrag.p2={time:t,price:pr}; redrawDrawings(); } }
-function onDrawUp(){ if(!drawDrag) return; const d=dragToDrawing(drawDrag);
+function onDrawMove(e){
+  if(editDrag){ const {x,y}=localXY(e); applyEdit(x,y); redrawDrawings(); return; }
+  if(drawDrag){ const {x,y}=localXY(e); const t=xToTime(x),pr=yToPrice(y); if(t!=null&&pr!=null){ drawDrag.p2={time:t,price:pr}; redrawDrawings(); } }
+}
+function onDrawUp(){
+  if(editDrag){ editDrag=null; scheduleSave(); redrawDrawings(); return; }
+  if(!drawDrag) return;
+  const d=dragToDrawing(drawDrag);
   const x1=timeToX(d.p1.time),y1=priceToY(d.p1.price),x2=timeToX(d.p2.time),y2=priceToY(d.p2.price);
   const moved=Math.abs((x1||0)-(x2||0))>3 || Math.abs((y1||0)-(y2||0))>3;
   drawDrag=null;
-  if(moved){ (S.drawings=S.drawings||[]).push(d); scheduleSave(); }
+  if(moved){ (S.drawings=S.drawings||[]).push(d); selectedDraw=d; scheduleSave(); }
   redrawDrawings(); setTool('select');
 }
+function deleteSelected(){ if(S&&selectedDraw){ const i=S.drawings.indexOf(selectedDraw); if(i>=0){ S.drawings.splice(i,1); selectedDraw=null; redrawDrawings(); scheduleSave(); } } }
 function setTool(t){
   drawTool=t;
   document.querySelectorAll('.draw-tools .dt[data-tool]').forEach(b=>b.classList.toggle('active', b.dataset.tool===t));
+  drawCanvas.style.pointerEvents='';                          // defer to CSS classes
+  drawCanvas.style.cursor='';
   drawCanvas.classList.toggle('armed', t!=='select'&&t!=='erase');
   drawCanvas.classList.toggle('erasing', t==='erase');
-  if(t==='select') drawDrag=null;
+  if(t!=='select') selectedDraw=null;
+  drawDrag=null; editDrag=null; hoverDraw=null;
+  redrawDrawings();
 }
 function initDrawTools(){
   const colors=['#c9a84c','#1D9E75','#e0524a','#4a90d9','#e2e2e2'];
   const cc=$('dtColors'); cc.innerHTML='';
   colors.forEach(c=>{ const s=document.createElement('span'); s.className='dt-sw'+(c===drawColor?' active':''); s.style.background=c; s.dataset.c=c;
-    s.onclick=()=>{ drawColor=c; [...cc.children].forEach(x=>x.classList.toggle('active',x.dataset.c===c)); }; cc.appendChild(s); });
+    s.onclick=()=>{ drawColor=c; [...cc.children].forEach(x=>x.classList.toggle('active',x.dataset.c===c));
+      if(selectedDraw){ selectedDraw.color=c; redrawDrawings(); scheduleSave(); } }; cc.appendChild(s); });
   document.querySelectorAll('.draw-tools .dt[data-tool]').forEach(b=> b.onclick=()=>setTool(b.dataset.tool));
-  $('dtUndo').onclick=()=>{ if(S&&S.drawings&&S.drawings.length){ S.drawings.pop(); redrawDrawings(); scheduleSave(); } };
-  $('dtClear').onclick=()=>{ if(S&&S.drawings&&S.drawings.length&&confirm('Tüm çizimler silinsin mi?')){ S.drawings=[]; redrawDrawings(); scheduleSave(); } };
+  $('dtUndo').onclick=()=>{ if(S&&S.drawings&&S.drawings.length){ const r=S.drawings.pop(); if(r===selectedDraw)selectedDraw=null; redrawDrawings(); scheduleSave(); } };
+  $('dtClear').onclick=()=>{ if(S&&S.drawings&&S.drawings.length&&confirm('Tüm çizimler silinsin mi?')){ S.drawings=[]; selectedDraw=null; redrawDrawings(); scheduleSave(); } };
   drawCanvas.addEventListener('pointerdown', onDrawDown);
   drawCanvas.addEventListener('pointermove', onDrawMove);
   window.addEventListener('pointerup', onDrawUp);
+  const wrap=document.querySelector('.chart-wrap');
+  wrap.addEventListener('pointermove', onWrapMove);
+  wrap.addEventListener('pointerleave', ()=>{ if(drawTool==='select'&&!editDrag){ hoverDraw=null; drawCanvas.style.pointerEvents='none'; redrawDrawings(); } });
   setTool('select');
 }
 
@@ -1361,6 +1451,7 @@ function wire(){
       else if(e.key==='h'||e.key==='H') setTool('hline');
       else if(e.key==='r'||e.key==='R') setTool('rect');
       else if(e.key==='f'||e.key==='F') setTool('fib');
+      else if((e.key==='Delete'||e.key==='Backspace')&&selectedDraw){ e.preventDefault(); deleteSelected(); }
       else if(e.key==='Escape') setTool('select');
     }
   });

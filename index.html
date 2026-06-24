@@ -233,6 +233,24 @@
   .ord-x{background:none;border:none;color:var(--muted2);cursor:pointer;font-size:13px;padding:2px 5px;border-radius:5px}
   .ord-x:hover{color:var(--loss);background:rgba(224,82,74,.1)}
   .pc-row .btn{padding:6px 0}
+  /* maximize / fullscreen */
+  #chartPanel.maximized{position:fixed;inset:0;z-index:60;border-radius:0;margin:0;max-width:none;display:flex;flex-direction:column}
+  #chartPanel.maximized .chart-wrap{flex:1 1 auto;min-height:0}
+  #chartPanel.maximized #chart{height:100%}
+  #chartPanel.maximized #drawLayer{border-radius:0}
+  .icon-btn{position:absolute;z-index:5;width:30px;height:30px;display:grid;place-items:center;background:rgba(10,10,13,.9);border:1px solid var(--line);border-radius:8px;color:var(--muted);cursor:pointer;backdrop-filter:blur(6px)}
+  .icon-btn:hover{color:var(--txt);border-color:var(--line2)}
+  .icon-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+  #btnMax{top:8px;right:8px}
+  /* right-click trade menu */
+  .ctx-menu{position:fixed;z-index:70;min-width:190px;background:rgba(12,12,16,.97);border:1px solid var(--line2);border-radius:10px;padding:5px;box-shadow:0 16px 40px -10px #000;backdrop-filter:blur(8px);display:none;font-size:13px;font-family:var(--mono)}
+  .ctx-menu.on{display:block}
+  .ctx-item{display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:7px;color:var(--txt);cursor:pointer;white-space:nowrap}
+  .ctx-item:hover{background:rgba(255,255,255,.05)}
+  .ctx-item.long{color:var(--long)} .ctx-item.short{color:var(--short)}
+  .ctx-item.danger{color:var(--loss)}
+  .ctx-sep{height:1px;background:var(--line);margin:4px 6px}
+  .ctx-price{font-family:var(--mono);color:var(--muted2);font-size:11px;padding:5px 11px 6px}
 </style>
 </head>
 <body>
@@ -259,6 +277,7 @@
       <div class="chart-wrap">
         <div id="chart"></div>
         <canvas id="drawLayer"></canvas>
+        <button class="icon-btn" id="btnMax" title="Tam ekran (M)"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
         <div class="draw-tools hidden" id="drawTools">
           <button class="dt" data-tool="select" title="İmleç (V)" aria-label="İmleç">
             <svg viewBox="0 0 24 24"><path d="M6 4l13 7-5.5 1.5L11 19z"/></svg></button>
@@ -387,12 +406,14 @@
   </div>
 
   <footer>
-    Kısayollar: <span class="kbd">→</span>/<span class="kbd">Boşluk</span> ileri · <span class="kbd">⇧→</span> +10 · <span class="kbd">L</span> long · <span class="kbd">S</span> short · <span class="kbd">C</span> kapat · <span class="kbd">T</span> trend · <span class="kbd">H</span> yatay · <span class="kbd">R</span> kutu · <span class="kbd">F</span> fib · <span class="kbd">V</span> imleç
+    Kısayollar: <span class="kbd">→</span>/<span class="kbd">Boşluk</span> ileri · <span class="kbd">⇧→</span> +10 · <span class="kbd">L</span> long · <span class="kbd">S</span> short · <span class="kbd">C</span> kapat · <span class="kbd">T</span> trend · <span class="kbd">H</span> yatay · <span class="kbd">R</span> kutu · <span class="kbd">F</span> fib · <span class="kbd">V</span> imleç · <span class="kbd">M</span> tam ekran · <span class="kbd">sağ tık</span> emir menüsü
     &nbsp;·&nbsp; Grafik altyapısı <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> Lightweight Charts™
   </footer>
 </div>
 
 <!-- new session modal -->
+<div class="ctx-menu" id="ctxMenu"></div>
+
 <div class="scrim" id="scrim">
   <div class="modal">
     <h2>Yeni backtest oturumu</h2>
@@ -691,6 +712,7 @@ let fetchingTF=false;  // guard for async finer-TF coverage fetches
 let stepping=false;    // guard so rapid clicks/keys don't overlap a step
 let drawCanvas=null, dctx=null, drawTool='select', drawColor='#c9a84c', drawDrag=null;
 let selectedDraw=null, hoverDraw=null, editDrag=null;
+let maximized=false, tradeDrag=null, hoverKnob=null, redrawPending=false;
 let saveTimer=null;
 
 function emptySession(cfg, candles, startIndex){
@@ -729,7 +751,8 @@ function initChart(){
   // drawing overlay
   drawCanvas=$('drawLayer'); dctx=drawCanvas.getContext('2d');
   sizeDrawLayer();
-  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>redrawDrawings());
+  chart.timeScale().subscribeVisibleLogicalRangeChange(()=>scheduleRedraw());
+  chart.subscribeCrosshairMove(()=>scheduleRedraw());
   initDrawTools();
 }
 
@@ -938,6 +961,47 @@ function redrawDrawings(){
   (S.drawings||[]).forEach(d=>drawOne(d,dctx,false, d===selectedDraw||d===hoverDraw));
   if(drawDrag){ const d=dragToDrawing(drawDrag); drawOne(d,dctx,true,false); }
   if(selectedDraw && (S.drawings||[]).indexOf(selectedDraw)>=0) drawHandlesFor(selectedDraw,dctx);
+  drawTradeKnobs(dctx);
+}
+function scheduleRedraw(){ if(redrawPending) return; redrawPending=true; requestAnimationFrame(()=>{ redrawPending=false; redrawDrawings(); }); }
+function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function ord(id){ return (S&&S.orders||[]).find(o=>o.id===id); }
+// draggable knobs for position SL/TP and pending-order price/SL/TP
+function tradeKnobList(){
+  const ks=[];
+  if(!S) return ks;
+  if(S.position){ ks.push({price:S.position.sl,color:'#e0524a',role:'posSL'}); if(S.position.tp!=null) ks.push({price:S.position.tp,color:'#1D9E75',role:'posTP'}); }
+  else if(S.orders){ S.orders.forEach(o=>{
+    ks.push({price:o.price,color:o.side==='long'?'#1D9E75':'#e0524a',role:'order:'+o.id});
+    if(o.sl!=null) ks.push({price:o.sl,color:'#e0524a',role:'osl:'+o.id});
+    if(o.tp!=null) ks.push({price:o.tp,color:'#1D9E75',role:'otp:'+o.id});
+  }); }
+  return ks;
+}
+function drawTradeKnobs(ctx){
+  const kx=paneW()-30;
+  tradeKnobList().forEach(k=>{
+    const y=priceToY(k.price); if(y==null) return;
+    ctx.save();
+    ctx.fillStyle='#0a0a0d'; ctx.strokeStyle=k.color; ctx.lineWidth=1.4;
+    roundRect(ctx,kx-12,y-7,24,14,4); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=k.color;
+    ctx.fillRect(kx-4,y-3,1.4,6); ctx.fillRect(kx-0.2,y-3,1.4,6); ctx.fillRect(kx+3.6,y-3,1.4,6);
+    ctx.restore();
+  });
+}
+function knobAt(x,y){
+  const kx=paneW()-30; if(Math.abs(x-kx)>14) return null;
+  for(const k of tradeKnobList()){ const ky=priceToY(k.price); if(ky!=null&&Math.abs(y-ky)<9) return k.role; }
+  return null;
+}
+function applyTradeDrag(role, price){
+  if(price==null||!isFinite(price)) return;
+  if(role==='posSL'&&S.position) S.position.sl=price;
+  else if(role==='posTP'&&S.position) S.position.tp=price;
+  else if(role.startsWith('order:')){ const o=ord(role.slice(6)); if(o){ o.price=price; const cb=curBar(); if(cb) o.cond=orderCond(o.side,o.price,cb.close); } }
+  else if(role.startsWith('osl:')){ const o=ord(role.slice(4)); if(o) o.sl=price; }
+  else if(role.startsWith('otp:')){ const o=ord(role.slice(4)); if(o) o.tp=price; }
 }
 function hitTest(px,py){
   const ds=(S&&S.drawings)||[];
@@ -981,8 +1045,12 @@ function applyEdit(x,y){
 }
 function localXY(e){ const r=drawCanvas.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
 function onWrapMove(e){
-  if(!S || drawTool!=='select' || editDrag) return;
-  const {x,y}=localXY(e); const ds=S.drawings||[];
+  if(!S || drawTool!=='select' || editDrag || tradeDrag) return;
+  const {x,y}=localXY(e);
+  const krole=knobAt(x,y);
+  if(krole){ hoverKnob=krole; hoverDraw=null; drawCanvas.style.pointerEvents='auto'; drawCanvas.style.cursor='ns-resize'; return; }
+  hoverKnob=null;
+  const ds=S.drawings||[];
   let hit=null, cur='default';
   for(let i=ds.length-1;i>=0;i--){ const h=handleHit(x,y,ds[i]); if(h){ hit=ds[i]; cur=(h==='price')?'ns-resize':'nwse-resize'; break; } }
   if(!hit){ const idx=hitTest(x,y); if(idx>=0){ hit=ds[idx]; cur='move'; } }
@@ -992,9 +1060,11 @@ function onWrapMove(e){
   if(changed) redrawDrawings();
 }
 function onDrawDown(e){
-  if(!S) return;
+  if(!S || e.button!==0) return;
   const {x,y}=localXY(e);
   if(drawTool==='select'){                                   // edit existing
+    const krole=knobAt(x,y);
+    if(krole){ tradeDrag={role:krole}; drawCanvas.setPointerCapture && drawCanvas.setPointerCapture(e.pointerId); return; }
     const ds=S.drawings||[]; let target=null, mode=null;
     for(let i=ds.length-1;i>=0;i--){ const h=handleHit(x,y,ds[i]); if(h){ target=ds[i]; mode=h; break; } }
     if(!target){ const idx=hitTest(x,y); if(idx>=0){ target=ds[idx]; mode='move'; } }
@@ -1012,10 +1082,12 @@ function onDrawDown(e){
   drawCanvas.setPointerCapture && drawCanvas.setPointerCapture(e.pointerId);
 }
 function onDrawMove(e){
+  if(tradeDrag){ const {y}=localXY(e); const pr=yToPrice(y); applyTradeDrag(tradeDrag.role,pr); updatePositionLines(); scheduleRedraw(); return; }
   if(editDrag){ const {x,y}=localXY(e); applyEdit(x,y); redrawDrawings(); return; }
   if(drawDrag){ const {x,y}=localXY(e); const t=xToTime(x),pr=yToPrice(y); if(t!=null&&pr!=null){ drawDrag.p2={time:t,price:pr}; redrawDrawings(); } }
 }
 function onDrawUp(){
+  if(tradeDrag){ tradeDrag=null; rebuildMarkers(); updatePositionLines(); scheduleRedraw(); S.updatedAt=Date.now(); render(); scheduleSave(); return; }
   if(editDrag){ editDrag=null; scheduleSave(); redrawDrawings(); return; }
   if(!drawDrag) return;
   const d=dragToDrawing(drawDrag);
@@ -1051,7 +1123,16 @@ function initDrawTools(){
   window.addEventListener('pointerup', onDrawUp);
   const wrap=document.querySelector('.chart-wrap');
   wrap.addEventListener('pointermove', onWrapMove);
-  wrap.addEventListener('pointerleave', ()=>{ if(drawTool==='select'&&!editDrag){ hoverDraw=null; drawCanvas.style.pointerEvents='none'; redrawDrawings(); } });
+  wrap.addEventListener('pointerleave', ()=>{ if(drawTool==='select'&&!editDrag&&!tradeDrag){ hoverDraw=null; hoverKnob=null; drawCanvas.style.pointerEvents='none'; redrawDrawings(); } });
+  $('btnMax').onclick=toggleMax;
+  wrap.addEventListener('contextmenu', e=>{
+    if(!S || !curBar()) return;
+    e.preventDefault();
+    const {y}=localXY(e); const pr=yToPrice(y);
+    if(pr!=null) showCtxMenu(e.clientX, e.clientY, pr);
+  });
+  document.addEventListener('pointerdown', e=>{ if(!$('ctxMenu').contains(e.target)) hideCtxMenu(); }, true);
+  window.addEventListener('blur', hideCtxMenu);
   setTool('select');
 }
 
@@ -1205,7 +1286,7 @@ function partialClose(frac){ if(S&&S.position){ const cur=curBar(); if(cur) clos
 function setPositionSLTP(slStr,tpStr){
   if(!S||!S.position) return; const p=S.position;
   const sl=parseFloat(slStr); if(!isNaN(sl)) p.sl=sl;
-  const t=(tpStr||'').trim(); p.tp = t===''?null:(isNaN(parseFloat(t))?p.tp:parseFloat(t));
+  const t=String(tpStr==null?'':tpStr).trim(); p.tp = t===''?null:(isNaN(parseFloat(t))?p.tp:parseFloat(t));
   updatePositionLines(); rebuildMarkers();
   S.updatedAt=Date.now(); render(); scheduleSave();
 }
@@ -1221,6 +1302,65 @@ function processOrders(nb){
   return false;
 }
 function cancelOrder(id){ if(S){ S.orders=(S.orders||[]).filter(o=>o.id!==id); updatePositionLines(); render(); scheduleSave(); } }
+// quick entry from the chart (right-click). Auto default SL/TP that the user can then drag.
+function quickEntry(side, mode, atPrice){
+  if(!S) return; const cur=curBar(); if(!cur) return;
+  const entry = mode==='market' ? cur.close : atPrice;
+  if(entry==null||!isFinite(entry)) return;
+  const sl = side==='long'? entry*0.99 : entry*1.01;
+  const tp = side==='long'? entry*1.02 : entry*0.98;
+  if(mode==='market'){ if(S.position){ flashErr&&flashErr('Zaten pozisyon var.'); return; } openPosition(side,entry,cur.time,sl,tp,S.riskPct); S.orders=[]; }
+  else { const cond=orderCond(side,entry,cur.close); (S.orders=S.orders||[]).push({id:uid(),side,price:entry,sl,tp,cond,riskPct:S.riskPct,createdTime:cur.time}); }
+  updatePositionLines(); rebuildMarkers(); S.updatedAt=Date.now(); render(); scheduleSave();
+}
+
+/* ---------- maximize / fullscreen ---------- */
+function toggleMax(){
+  maximized=!maximized;
+  $('chartPanel').classList.toggle('maximized', maximized);
+  document.body.style.overflow = maximized?'hidden':'';
+  $('btnMax').title = maximized?'Çık (M / Esc)':'Tam ekran (M)';
+  requestAnimationFrame(()=>{ const el=$('chart'); if(chart){ chart.applyOptions({width:el.clientWidth,height:el.clientHeight}); } sizeDrawLayer(); redrawDrawings(); });
+}
+
+/* ---------- right-click trade menu ---------- */
+function showCtxMenu(clientX, clientY, atPrice){
+  if(!S || !curBar()) return;
+  const m=$('ctxMenu'); const it=[];
+  it.push(`<div class="ctx-price">Fiyat: ${fmtPrice(atPrice)}</div>`);
+  if(S.position){
+    it.push(`<div class="ctx-item" data-act="slhere">⛒ Stop'u buraya çek</div>`);
+    it.push(`<div class="ctx-item" data-act="tphere">◎ Hedefi buraya koy</div>`);
+    it.push(`<div class="ctx-sep"></div>`);
+    it.push(`<div class="ctx-item" data-act="half">½ Yarısını kapat</div>`);
+    it.push(`<div class="ctx-item danger" data-act="close">✕ Pozisyonu kapat</div>`);
+  } else {
+    it.push(`<div class="ctx-item long" data-act="mlong">▲ Piyasa Long</div>`);
+    it.push(`<div class="ctx-item short" data-act="mshort">▼ Piyasa Short</div>`);
+    it.push(`<div class="ctx-sep"></div>`);
+    it.push(`<div class="ctx-item long" data-act="llong">▲ Emir: Al @ ${fmtPrice(atPrice)}</div>`);
+    it.push(`<div class="ctx-item short" data-act="lshort">▼ Emir: Sat @ ${fmtPrice(atPrice)}</div>`);
+    if(S.orders&&S.orders.length){ it.push(`<div class="ctx-sep"></div>`); it.push(`<div class="ctx-item danger" data-act="cancelall">✕ Tüm emirleri iptal</div>`); }
+  }
+  m.innerHTML=it.join('');
+  m.style.left=Math.min(clientX, window.innerWidth-205)+'px';
+  m.style.top=Math.min(clientY, window.innerHeight-280)+'px';
+  m.classList.add('on');
+  m.querySelectorAll('[data-act]').forEach(el=> el.onclick=()=>{ ctxAction(el.dataset.act, atPrice); hideCtxMenu(); });
+}
+function hideCtxMenu(){ $('ctxMenu').classList.remove('on'); }
+function ctxAction(act, price){
+  if(!S) return;
+  if(act==='mlong') quickEntry('long','market');
+  else if(act==='mshort') quickEntry('short','market');
+  else if(act==='llong') quickEntry('long','limit',price);
+  else if(act==='lshort') quickEntry('short','limit',price);
+  else if(act==='slhere'&&S.position) setPositionSLTP(price, S.position.tp);
+  else if(act==='tphere'&&S.position) setPositionSLTP(S.position.sl, price);
+  else if(act==='half') partialClose(0.5);
+  else if(act==='close') manualClose();
+  else if(act==='cancelall'){ S.orders=[]; updatePositionLines(); render(); scheduleSave(); }
+}
 
 /* ============================================================
    RENDER
@@ -1574,12 +1714,14 @@ function wire(){
 
   document.addEventListener('keydown',e=>{
     if($('scrim').classList.contains('on')) return;
+    if(e.key==='Escape'){ if($('ctxMenu').classList.contains('on')){ hideCtxMenu(); return; } if(maximized){ toggleMax(); return; } }
     const typing=/INPUT|SELECT|TEXTAREA/.test((e.target.tagName||''));
     if(typing) return;
     if(e.key==='ArrowRight'||e.key===' '){ e.preventDefault(); e.shiftKey?stepN(10):stepForward(); }
     else if(e.key==='l'||e.key==='L'){ if(!$('btnLong').disabled) openPositionFlow('long'); }
     else if(e.key==='s'||e.key==='S'){ if(!$('btnShort').disabled) openPositionFlow('short'); }
     else if(e.key==='c'||e.key==='C'){ manualClose(); }
+    else if(e.key==='m'||e.key==='M'){ if(S) toggleMax(); }
     else if(S){
       if(e.key==='v'||e.key==='V') setTool('select');
       else if(e.key==='t'||e.key==='T') setTool('trend');

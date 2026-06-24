@@ -233,6 +233,8 @@
   .ord-x{background:none;border:none;color:var(--muted2);cursor:pointer;font-size:13px;padding:2px 5px;border-radius:5px}
   .ord-x:hover{color:var(--loss);background:rgba(224,82,74,.1)}
   .pc-row .btn{padding:6px 0}
+  .speed-sel{background:var(--bg2);border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:6px 7px;font:inherit;font-size:12px;cursor:pointer}
+  #btnPlay.playing{background:transparent;color:var(--accent);border-color:var(--accent-dim)}
   /* maximize / fullscreen */
   #chartPanel.maximized{position:fixed;inset:0;z-index:60;border-radius:0;margin:0;max-width:none;display:flex;flex-direction:column}
   #chartPanel.maximized .chart-wrap{flex:1 1 auto;min-height:0}
@@ -310,8 +312,15 @@
       </div>
 
       <div class="replay-bar">
+        <button class="btn primary sm" id="btnPlay" disabled>▶ Oynat</button>
         <button class="btn primary sm" id="btnNext" disabled>İleri ▸</button>
         <button class="btn sm" id="btnNext10" disabled>+10 ▸▸</button>
+        <select id="playSpeed" class="speed-sel" title="Oynatma hızı">
+          <option value="900">0.5×</option>
+          <option value="450" selected>1×</option>
+          <option value="200">2×</option>
+          <option value="80">5×</option>
+        </select>
         <div class="replay-info">
           <div><div class="k">Bar</div><div class="v num" id="riBar">—</div></div>
           <div><div class="k">Zaman</div><div class="v num" id="riTime">—</div></div>
@@ -406,7 +415,7 @@
   </div>
 
   <footer>
-    Kısayollar: <span class="kbd">→</span>/<span class="kbd">Boşluk</span> ileri · <span class="kbd">⇧→</span> +10 · <span class="kbd">L</span> long · <span class="kbd">S</span> short · <span class="kbd">C</span> kapat · <span class="kbd">T</span> trend · <span class="kbd">H</span> yatay · <span class="kbd">R</span> kutu · <span class="kbd">F</span> fib · <span class="kbd">V</span> imleç · <span class="kbd">M</span> tam ekran · <span class="kbd">sağ tık</span> emir menüsü
+    Kısayollar: <span class="kbd">→</span>/<span class="kbd">Boşluk</span> ileri · <span class="kbd">P</span> oynat/durdur · <span class="kbd">⇧→</span> +10 · <span class="kbd">L</span> long · <span class="kbd">S</span> short · <span class="kbd">C</span> kapat · <span class="kbd">T</span> trend · <span class="kbd">H</span> yatay · <span class="kbd">R</span> kutu · <span class="kbd">F</span> fib · <span class="kbd">V</span> imleç · <span class="kbd">M</span> tam ekran · <span class="kbd">sağ tık</span> emir menüsü
     &nbsp;·&nbsp; Grafik altyapısı <a href="https://www.tradingview.com/" target="_blank" rel="noopener">TradingView</a> Lightweight Charts™
   </footer>
 </div>
@@ -710,6 +719,17 @@ let chart=null, series=null, volSeries=null, priceLines=[], pendingSide=null;
 let viewData=[];       // candles currently shown (for marker snapping)
 let fetchingTF=false;  // guard for async finer-TF coverage fetches
 let stepping=false;    // guard so rapid clicks/keys don't overlap a step
+let playing=false, playTimer=null, playDelay=450;
+function stopPlay(){ playing=false; if(playTimer){ clearTimeout(playTimer); playTimer=null; } syncPlayBtn(); if(S) renderReplay(); }
+function startPlay(){ if(!S||!canStep()) return; playing=true; syncPlayBtn(); playTick(); }
+function togglePlay(){ playing?stopPlay():startPlay(); }
+function syncPlayBtn(){ const b=$('btnPlay'); if(!b) return; b.textContent=playing?'⏸ Durdur':'▶ Oynat'; b.classList.toggle('playing',playing); }
+async function playTick(){
+  if(!playing) return;
+  if(!canStep()){ stopPlay(); return; }
+  await stepForward();
+  if(playing){ if(canStep()) playTimer=setTimeout(playTick, playDelay); else stopPlay(); }
+}
 let drawCanvas=null, dctx=null, drawTool='select', drawColor='#c9a84c', drawDrag=null;
 let selectedDraw=null, hoverDraw=null, editDrag=null;
 let maximized=false, tradeDrag=null, hoverKnob=null, redrawPending=false;
@@ -1405,7 +1425,7 @@ function renderHeader(){
   }
 }
 function renderReplay(){
-  if(!S){ $('riBar').textContent='—';$('riTime').textContent='—';$('riPrice').textContent='—';$('riProg').style.width='0';return; }
+  if(!S){ $('riBar').textContent='—';$('riTime').textContent='—';$('riPrice').textContent='—';$('riProg').style.width='0'; $('btnPlay').disabled=true; return; }
   const vis=visibleForView(); const cur=vis[vis.length-1];
   $('riBar').textContent = (S.blind?'#':'')+vis.length+' · '+tfLabel(S.viewTF);
   $('riTime').textContent = cur ? (S.blind?('#'+vis.length):fmtTime(cur.time)) : '—';
@@ -1413,7 +1433,7 @@ function renderReplay(){
   const frac=(S.nowTs - S.startNow)/Math.max(1,(spanEnd()-S.startNow));
   $('riProg').style.width=Math.max(0,Math.min(1,frac))*100+'%';
   const end=atEnd();
-  $('btnNext').disabled=end; $('btnNext10').disabled=end;
+  $('btnNext').disabled=end; $('btnNext10').disabled=end; $('btnPlay').disabled=end&&!playing;
 }
 function renderPosition(){
   const open=!!(S&&S.position);
@@ -1591,11 +1611,12 @@ async function deleteSession(id){
   await store.del(K_SESS(id));
   let idx=await readJSON(K_INDEX)||[]; idx=idx.filter(x=>x.id!==id); await store.set(K_INDEX,idx);
   const last=await readJSON(K_LAST); if(last===id) await store.del(K_LAST);
-  if(S&&S.id===id){ S=null; viewData=[]; clearLines(); series.setData([]); if(volSeries) volSeries.setData([]); series.setMarkers([]); redrawDrawings(); $('chartEmpty').style.display='grid';
+  if(S&&S.id===id){ stopPlay(); S=null; viewData=[]; clearLines(); series.setData([]); if(volSeries) volSeries.setData([]); series.setMarkers([]); redrawDrawings(); $('chartEmpty').style.display='grid';
     cancelEntry(); renderReplay(); render(); }
   renderSessions();
 }
 async function resumeSession(id){
+  stopPlay();
   const rec=await readJSON(K_SESS(id));
   if(!rec){ alert('Oturum bulunamadı.'); return; }
   setBusy(true,'Veri yükleniyor…');
@@ -1632,7 +1653,7 @@ async function resumeSession(id){
 /* ============================================================
    NEW SESSION
    ============================================================ */
-function openModal(){ $('scrim').classList.add('on'); $('nsStatus').textContent=''; $('nsStatus').className='ns-status'; $('nsName').focus(); }
+function openModal(){ stopPlay(); $('scrim').classList.add('on'); $('nsStatus').textContent=''; $('nsStatus').className='ns-status'; $('nsName').focus(); }
 function closeModal(){ $('scrim').classList.remove('on'); }
 function setBusy(on,msg){ $('nsCreate').disabled=on; $('nsCreate').textContent=on?'Yükleniyor…':'Oluştur & başla'; if(msg){$('nsStatus').textContent=msg;$('nsStatus').className='ns-status';} }
 
@@ -1698,6 +1719,8 @@ function wire(){
 
   $('btnNext').onclick=()=>stepForward();
   $('btnNext10').onclick=()=>stepN(10);
+  $('btnPlay').onclick=togglePlay;
+  $('playSpeed').onchange=()=>{ playDelay=+$('playSpeed').value; };
 
   $('btnLong').onclick=()=>openPositionFlow('long');
   $('btnShort').onclick=()=>openPositionFlow('short');
@@ -1722,6 +1745,7 @@ function wire(){
     else if(e.key==='s'||e.key==='S'){ if(!$('btnShort').disabled) openPositionFlow('short'); }
     else if(e.key==='c'||e.key==='C'){ manualClose(); }
     else if(e.key==='m'||e.key==='M'){ if(S) toggleMax(); }
+    else if(e.key==='p'||e.key==='P'){ if(S) togglePlay(); }
     else if(S){
       if(e.key==='v'||e.key==='V') setTool('select');
       else if(e.key==='t'||e.key==='T') setTool('trend');

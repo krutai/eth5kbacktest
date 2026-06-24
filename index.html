@@ -134,8 +134,7 @@
 
   .pos{border:1px solid var(--accent-dim);border-radius:var(--r);padding:13px;background:rgba(201,168,76,.05)}
   .pos .side-tag{display:inline-block;font-weight:700;font-size:12px;padding:2px 9px;border-radius:5px;letter-spacing:.06em}
-  .pos .side-tag.long{background:rgba(29,158,117,.18);color:var(--long)}
-  .pos .side-tag.short{background:rgba(224,82,74,.18);color:var(--short)}
+  .pos .side-tag.long{background:rgba(29,158,117,.18);color:var(--long)}  .pos .side-tag.short{background:rgba(224,82,74,.18);color:var(--short)}
   .pos-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin:12px 0;font-size:12px}
   .pos-grid .k{color:var(--muted2)}
   .pos-grid .v{color:var(--txt);font-family:var(--mono);text-align:right}
@@ -229,6 +228,11 @@
   .log-scroll::-webkit-scrollbar,.tape::-webkit-scrollbar{height:8px;width:8px}
   .log-scroll::-webkit-scrollbar-thumb,.tape::-webkit-scrollbar-thumb{background:var(--line2);border-radius:8px}
   @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  /* pending orders */
+  .order-row{display:flex;align-items:center;gap:8px;background:var(--bg2);border:1px solid var(--line);border-radius:7px;padding:7px 10px;margin-top:6px}
+  .ord-x{background:none;border:none;color:var(--muted2);cursor:pointer;font-size:13px;padding:2px 5px;border-radius:5px}
+  .ord-x:hover{color:var(--loss);background:rgba(224,82,74,.1)}
+  .pc-row .btn{padding:6px 0}
 </style>
 </head>
 <body>
@@ -319,6 +323,14 @@
           <div class="field"><label>Yön / Giriş fiyatı</label>
             <input id="efEntry" readonly></div>
           <div class="row2">
+            <div class="field"><label>Emir tipi</label><select id="efType">
+              <option value="market">Piyasa (anında)</option>
+              <option value="limit">Limit / Stop (fiyatta)</option>
+            </select></div>
+            <div class="field" id="efPriceWrap" style="display:none"><label>Emir fiyatı</label>
+              <input id="efPrice" inputmode="decimal" placeholder="tetik fiyatı"></div>
+          </div>
+          <div class="row2">
             <div class="field"><label>Stop (SL)</label><input id="efSL" inputmode="decimal" placeholder="zorunlu"></div>
             <div class="field"><label>Hedef (TP)</label><input id="efTP" inputmode="decimal" placeholder="opsiyonel"></div>
           </div>
@@ -326,12 +338,13 @@
           <div class="err" id="efErr"></div>
           <div class="row2" style="margin-top:12px">
             <button class="btn ghost sm" id="efCancel">Vazgeç</button>
-            <button class="btn primary sm" id="efConfirm">İşlemi aç</button>
+            <button class="btn primary sm" id="efConfirm">Onayla</button>
           </div>
         </div>
 
         <!-- open position -->
         <div id="posCard" style="display:none"></div>
+        <div id="ordersBox" style="display:none;margin-top:12px"></div>
 
         <div class="field" style="margin-top:14px;display:flex;gap:10px;align-items:flex-end">
           <div style="flex:1"><label style="font-size:11px;color:var(--muted);text-transform:uppercase">Risk / işlem</label>
@@ -467,6 +480,13 @@ function checkStop(side, c, sl, tp){
   }
   return null;
 }
+// pending-order classification: fill when low<=price ('le') or high>=price ('ge')
+function orderCond(side,trigger,ref){
+  if(side==='long') return trigger<=ref?'le':'ge';   // buy limit below / buy stop above
+  return trigger>=ref?'ge':'le';                      // sell limit above / sell stop below
+}
+function orderFills(cond,price,bar){ return cond==='le'? bar.low<=price : bar.high>=price; }
+
 function computeStats(trades, startingBalance){
   const n=trades.length; if(!n) return {n:0};
   let wins=0,losses=0,be=0,gp=0,gl=0,totalPnl=0,totalR=0,sumWinR=0,sumLossR=0,bars=0;
@@ -495,8 +515,8 @@ function aggregate(base, vSec){
   const out=[]; let cur=null;
   for(const c of base){
     const b=Math.floor(c.time/vSec)*vSec;
-    if(!cur||cur.time!==b){ if(cur)out.push(cur); cur={time:b,open:c.open,high:c.high,low:c.low,close:c.close}; }
-    else{ cur.high=Math.max(cur.high,c.high); cur.low=Math.min(cur.low,c.low); cur.close=c.close; }
+    if(!cur||cur.time!==b){ if(cur)out.push(cur); cur={time:b,open:c.open,high:c.high,low:c.low,close:c.close,volume:c.volume||0}; }
+    else{ cur.high=Math.max(cur.high,c.high); cur.low=Math.min(cur.low,c.low); cur.close=c.close; cur.volume+=c.volume||0; }
   }
   if(cur)out.push(cur); return out;
 }
@@ -559,7 +579,7 @@ async function fetchKlines(source, symbol, interval, opts={}){
     const r=await fetch(url); if(!r.ok) throw new Error('Bybit HTTP '+r.status);
     const j=await r.json();
     if(j.retCode!==0||!j.result||!j.result.list) throw new Error(j.retMsg||'Bybit: veri yok');
-    return j.result.list.map(d=>({time:Math.floor(+d[0]/1000),open:+d[1],high:+d[2],low:+d[3],close:+d[4]})).reverse();
+    return j.result.list.map(d=>({time:Math.floor(+d[0]/1000),open:+d[1],high:+d[2],low:+d[3],close:+d[4],volume:+d[5]})).reverse();
   }
   let url=`https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=${interval}&limit=${lim}`;
   if(opts.startTime) url+=`&startTime=${Math.floor(opts.startTime)}`;
@@ -567,7 +587,7 @@ async function fetchKlines(source, symbol, interval, opts={}){
   const r=await fetch(url);
   if(!r.ok){ let m='Binance HTTP '+r.status; try{const e=await r.json(); if(e.msg) m='Binance: '+e.msg;}catch(_){} throw new Error(m); }
   const raw=await r.json();
-  return raw.map(d=>({time:Math.floor(d[0]/1000),open:+d[1],high:+d[2],low:+d[3],close:+d[4]}));
+  return raw.map(d=>({time:Math.floor(d[0]/1000),open:+d[1],high:+d[2],low:+d[3],close:+d[4],volume:+d[5]}));
 }
 function dedupeSorted(arr){
   const s=[...arr].sort((a,b)=>a.time-b.time); const out=[]; let last=null;
@@ -665,7 +685,7 @@ function loadLib(){
    STATE + CHART
    ============================================================ */
 let S=null;            // active session object
-let chart=null, series=null, priceLines=[], pendingSide=null;
+let chart=null, series=null, volSeries=null, priceLines=[], pendingSide=null;
 let viewData=[];       // candles currently shown (for marker snapping)
 let fetchingTF=false;  // guard for async finer-TF coverage fetches
 let stepping=false;    // guard so rapid clicks/keys don't overlap a step
@@ -681,7 +701,7 @@ function emptySession(cfg, candles, startIndex){
     source:cfg.source, symbol:cfg.symbol, interval:cfg.interval, depth:cfg.depth,
     startTime:candles[0].time*1000, blind:cfg.blind, viewTF:cfg.interval,
     startingBalance:cfg.balance, balance:cfg.balance, riskPct:cfg.risk,
-    startNow, nowTs:startNow, trades:[], position:null, drawings:[],
+    startNow, nowTs:startNow, trades:[], position:null, orders:[], drawings:[],
     _candles:candles, _tf:{}, _cov:{}, _trunc:{}   // underscore keys are not persisted
   };
 }
@@ -701,6 +721,9 @@ function initChart(){
     upColor:'#1D9E75',downColor:'#e0524a',borderUpColor:'#1D9E75',borderDownColor:'#e0524a',
     wickUpColor:'#1D9E75',wickDownColor:'#e0524a',
   });
+  series.priceScale().applyOptions({scaleMargins:{top:0.08,bottom:0.22}});
+  volSeries=chart.addHistogramSeries({priceFormat:{type:'volume'}, priceScaleId:'vol', color:'#33333a'});
+  volSeries.priceScale().applyOptions({scaleMargins:{top:0.82,bottom:0}});
   const ro=new ResizeObserver(()=>{ if(chart){ chart.applyOptions({width:el.clientWidth,height:el.clientHeight}); sizeDrawLayer(); redrawDrawings(); } });
   ro.observe(el);
   // drawing overlay
@@ -759,11 +782,13 @@ async function setView(tf, opt={}){
   S.viewTF=tf;
   renderView(!!opt.fit); render(); scheduleSave();
 }
+function volBar(c){ return {time:c.time, value:c.volume||0, color: (c.close>=c.open?'rgba(29,158,117,.45)':'rgba(224,82,74,.45)')}; }
 function renderView(fit){
   if(!S) return;
   const data=visibleForView();
   viewData=data;
   series.setData(data);
+  if(volSeries) volSeries.setData(data.map(volBar));
   rebuildMarkers();
   updatePositionLines();
   redrawDrawings();
@@ -804,11 +829,18 @@ function rebuildMarkers(){
 function clearLines(){ priceLines.forEach(l=>series.removePriceLine(l)); priceLines=[]; }
 function updatePositionLines(){
   clearLines();
-  if(!S||!S.position) return;
+  if(!S) return;
   const p=S.position;
-  priceLines.push(series.createPriceLine({price:p.entryPrice,color:'#c9a84c',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'Giriş'}));
-  priceLines.push(series.createPriceLine({price:p.sl,color:'#e0524a',lineWidth:1,lineStyle:0,axisLabelVisible:true,title:'SL'}));
-  if(p.tp!=null) priceLines.push(series.createPriceLine({price:p.tp,color:'#1D9E75',lineWidth:1,lineStyle:0,axisLabelVisible:true,title:'TP'}));
+  if(p){
+    priceLines.push(series.createPriceLine({price:p.entryPrice,color:'#c9a84c',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'Giriş'}));
+    priceLines.push(series.createPriceLine({price:p.sl,color:'#e0524a',lineWidth:1,lineStyle:0,axisLabelVisible:true,title:'SL'}));
+    if(p.tp!=null) priceLines.push(series.createPriceLine({price:p.tp,color:'#1D9E75',lineWidth:1,lineStyle:0,axisLabelVisible:true,title:'TP'}));
+  }
+  if(!p && S.orders){                                  // pending entry orders
+    S.orders.forEach(o=>{
+      priceLines.push(series.createPriceLine({price:o.price,color:o.side==='long'?'#1D9E75':'#e0524a',lineWidth:1,lineStyle:3,axisLabelVisible:true,title:(o.side==='long'?'AL':'SAT')+' emir'}));
+    });
+  }
 }
 
 /* ============================================================
@@ -1051,10 +1083,13 @@ async function stepForward(){
     S.nowTs=nx.close;
     const nb=nx.bar;
     series.update(nb); viewData.push(nb);        // reveal exactly one new bar of the viewed TF
-    if(S.position){
+    if(volSeries) volSeries.update(volBar(nb));
+    const justFilled=processOrders(nb);               // fill any pending limit/stop orders on this bar
+    if(S.position && !justFilled){
       const hit=checkStop(S.position.side, nb, S.position.sl, S.position.tp);
-      if(hit) closePosition(hit.price, hit.reason, nb.time);
+      if(hit) closeQty(hit.price, hit.reason, nb.time, S.position.qty);
     }
+    updatePositionLines();
     rebuildMarkers();
     redrawDrawings();
     if(isFetchedTF(tf)) maybeExtendCoverage();
@@ -1072,39 +1107,54 @@ function openPositionFlow(side){
   if(S.position){ flashErr('Önce açık pozisyonu kapat.'); return; }
   const cur=curBar(); if(!cur){ flashErr('Bu periyotta henüz kapanmış mum yok — ilerle.'); return; }
   pendingSide=side;
-  const entry=cur.close;
   $('entryBtns').style.display='none';
   $('entryForm').style.display='block';
-  $('efEntry').value=(side==='long'?'▲ LONG':'▼ SHORT')+'   @ '+fmtPrice(entry);
-  $('efEntry').style.color=side==='long'?'var(--long)':'var(--short)';
+  $('efType').value='market';
+  $('efPriceWrap').style.display='none';
+  $('efPrice').value='';
   $('efSL').value=''; $('efTP').value=''; $('efErr').textContent='';
+  syncEntryHead();
   updateDerived();
   $('efSL').focus();
 }
 function cancelEntry(){ pendingSide=null; $('entryForm').style.display='none'; $('entryBtns').style.display='grid'; }
+function entryRefPrice(){ const cur=curBar(); return cur?cur.close:0; }
+function entryPriceVal(){
+  if($('efType').value==='limit'){ const p=parseFloat($('efPrice').value); return isNaN(p)?null:p; }
+  return entryRefPrice();
+}
+function syncEntryHead(){
+  const limit=$('efType').value==='limit';
+  $('efPriceWrap').style.display=limit?'block':'none';
+  const ref=entryRefPrice();
+  let head=(pendingSide==='long'?'▲ LONG':'▼ SHORT');
+  if(limit){ const pr=entryPriceVal(); head+= '  emir'+(pr!=null?(' · '+(orderCond(pendingSide,pr,ref)==='le'?'limit':'stop')):''); }
+  else head+='   @ '+fmtPrice(ref);
+  $('efEntry').value=head;
+  $('efEntry').style.color=pendingSide==='long'?'var(--long)':'var(--short)';
+}
 function updateDerived(){
-  const cur=curBar(); const entry=cur?cur.close:0;
+  syncEntryHead();
+  const entry=entryPriceVal();
   const sl=parseFloat($('efSL').value), tp=parseFloat($('efTP').value);
   const riskAmt=S.balance*(S.riskPct/100);
   const box=$('efDerived'); box.innerHTML='';
   const add=(k,v)=>{ const d=document.createElement('div'); d.className='d'; d.innerHTML=`<span>${k}</span><b class="num">${v}</b>`; box.appendChild(d); };
   add('Risk tutarı', fmtMoney(riskAmt));
-  if(!isNaN(sl)){
+  if(entry!=null && !isNaN(sl)){
     const size=computeSize(pendingSide,entry,sl,riskAmt);
     if(size==null){ add('Stop mesafesi','geçersiz'); return; }
-    const distPct=Math.abs(entry-sl)/entry*100;
-    add('Stop mesafesi', distPct.toFixed(2)+'%');
-    add('Pozisyon', size.toFixed(6).replace(/\.?0+$/,'')+' adet');
-    if(!isNaN(tp)){
-      const rr=computeR(pendingSide,entry,tp,sl);
-      add('Kâr/Risk (R:R)', rr!=null?('1 : '+rr.toFixed(2)):'—');
-    }
+    add('Stop mesafesi', (Math.abs(entry-sl)/entry*100).toFixed(2)+'%');
+    add('Miktar', size.toFixed(6).replace(/\.?0+$/,'')+' adet');
+    if(!isNaN(tp)){ const rr=computeR(pendingSide,entry,tp,sl); add('Kâr/Risk (R:R)', rr!=null?('1 : '+rr.toFixed(2)):'—'); }
   }
 }
 function flashErr(m){ const e=$('efErr'); e.textContent=m; setTimeout(()=>{if(e.textContent===m)e.textContent='';},2500); }
 function confirmEntry(){
   const cur=curBar(); if(!cur){ flashErr('Mum yok — ilerle.'); return; }
-  const entry=cur.close;
+  const limit=$('efType').value==='limit';
+  const entry=entryPriceVal();
+  if(entry==null){ flashErr('Emir fiyatı gir.'); return; }
   const sl=parseFloat($('efSL').value);
   const tpRaw=$('efTP').value.trim();
   const tp=tpRaw===''?null:parseFloat(tpRaw);
@@ -1113,35 +1163,64 @@ function confirmEntry(){
   const riskAmt=S.balance*(S.riskPct/100);
   const size=computeSize(pendingSide,entry,sl,riskAmt);
   if(size==null){ flashErr(pendingSide==='long'?'Long için SL girişin altında olmalı.':'Short için SL girişin üstünde olmalı.'); return; }
-  if(tp!=null){
-    const rr=computeR(pendingSide,entry,tp,sl);
-    if(rr==null||rr<=0){ flashErr('Hedef yanlış tarafta.'); return; }
+  if(tp!=null){ const rr=computeR(pendingSide,entry,tp,sl); if(rr==null||rr<=0){ flashErr('Hedef yanlış tarafta.'); return; } }
+  if(limit){
+    const cond=orderCond(pendingSide,entry,cur.close);
+    (S.orders=S.orders||[]).push({id:uid(),side:pendingSide,price:entry,sl,tp,cond,riskPct:S.riskPct,createdTime:cur.time});
+  } else {
+    openPosition(pendingSide,entry,cur.time,sl,tp,S.riskPct);
+    S.orders=[];                                     // market entry cancels any pending orders
   }
-  S.position={side:pendingSide,entryPrice:entry,entryTime:cur.time,tf:S.viewTF,
-    sl,tp,size,riskAmount:riskAmt,notes:''};
   cancelEntry();
   updatePositionLines(); rebuildMarkers();
   S.updatedAt=Date.now(); render(); scheduleSave();
 }
-function closePosition(exitPrice, reason, exitTime){
+function openPosition(side,entry,entryTime,sl,tp,riskPct){
+  const riskAmt=S.balance*((riskPct!=null?riskPct:S.riskPct)/100);
+  const qty=computeSize(side,entry,sl,riskAmt);
+  if(qty==null) return false;
+  S.position={side,entryPrice:entry,entryTime,tf:S.viewTF,sl,tp,initialSL:sl,
+    qty,initialQty:qty,riskAmount:riskAmt,notes:''};
+  return true;
+}
+function closeQty(exitPrice, reason, exitTime, qty){
   if(!S||!S.position) return;
-  const p=S.position;
-  const pnl=computePnl(p.side,p.entryPrice,exitPrice,p.size);
-  const r=computeR(p.side,p.entryPrice,exitPrice,p.sl);
+  const p=S.position; qty=Math.min(qty,p.qty); if(qty<=1e-12) return;
+  const pnl=computePnl(p.side,p.entryPrice,exitPrice,qty);
+  const priceR=computeR(p.side,p.entryPrice,exitPrice,p.initialSL!=null?p.initialSL:p.sl);
+  const rW=(priceR==null?0:priceR)*(qty/p.initialQty);
   S.balance+=pnl;
-  const bars=Math.max(1, Math.round((exitTime-p.entryTime)/tfSeconds(p.tf||S.interval)));
-  S.trades.push({id:uid(),side:p.side,entryPrice:p.entryPrice,entryTime:p.entryTime,
-    exitPrice,exitTime,sl:p.sl,tp:p.tp,size:p.size,tf:p.tf||S.interval,bars,
-    riskAmount:p.riskAmount,pnl,rMultiple:r,exitReason:reason,balanceAfter:S.balance,notes:p.notes||''});
-  S.position=null;
-  clearLines(); rebuildMarkers();
+  const bars=Math.max(1,Math.round((exitTime-p.entryTime)/tfSeconds(p.tf||S.interval)));
+  const partial = qty < p.qty-1e-9;
+  S.trades.push({id:uid(),side:p.side,entryPrice:p.entryPrice,entryTime:p.entryTime,exitPrice,exitTime,
+    sl:p.sl,tp:p.tp,size:qty,tf:p.tf||S.interval,bars,riskAmount:p.riskAmount,pnl,rMultiple:rW,
+    exitReason:reason,partial,balanceAfter:S.balance,notes:p.notes||''});
+  p.qty-=qty;
+  if(p.qty<=1e-9){ S.position=null; clearLines(); }
+  rebuildMarkers(); updatePositionLines();
   S.updatedAt=Date.now(); render(); scheduleSave();
 }
-function manualClose(){
-  if(!S||!S.position) return;
-  const cur=curBar(); if(!cur) return;
-  closePosition(cur.close,'manual',cur.time);
+function manualClose(){ if(S&&S.position){ const cur=curBar(); if(cur) closeQty(cur.close,'manual',cur.time,S.position.qty); } }
+function partialClose(frac){ if(S&&S.position){ const cur=curBar(); if(cur) closeQty(cur.close,'manual',cur.time,S.position.qty*frac); } }
+function setPositionSLTP(slStr,tpStr){
+  if(!S||!S.position) return; const p=S.position;
+  const sl=parseFloat(slStr); if(!isNaN(sl)) p.sl=sl;
+  const t=(tpStr||'').trim(); p.tp = t===''?null:(isNaN(parseFloat(t))?p.tp:parseFloat(t));
+  updatePositionLines(); rebuildMarkers();
+  S.updatedAt=Date.now(); render(); scheduleSave();
 }
+function processOrders(nb){
+  if(!S || !S.orders || !S.orders.length || S.position) return false;
+  for(const o of S.orders){
+    if(orderFills(o.cond,o.price,nb)){
+      openPosition(o.side,o.price,nb.time,o.sl,o.tp,o.riskPct);
+      S.orders=[];                                   // OCO: first fill cancels the rest
+      return true;
+    }
+  }
+  return false;
+}
+function cancelOrder(id){ if(S){ S.orders=(S.orders||[]).filter(o=>o.id!==id); updatePositionLines(); render(); scheduleSave(); } }
 
 /* ============================================================
    RENDER
@@ -1203,24 +1282,52 @@ function renderPosition(){
   const canTrade=!!S && !!cur && S.nowTs<spanEnd();
   $('btnLong').disabled=!canTrade||open||pendingSide!=null;
   $('btnShort').disabled=!canTrade||open||pendingSide!=null;
-  if(!open||!cur) return;
+  renderOrders();
+  if(!open||!cur){ return; }
   const p=S.position, c=cur.close;
-  const upnl=computePnl(p.side,p.entryPrice,c,p.size);
-  const ur=computeR(p.side,p.entryPrice,c,p.sl);
+  const upnl=computePnl(p.side,p.entryPrice,c,p.qty);
+  const ur=computeR(p.side,p.entryPrice,c,p.initialSL!=null?p.initialSL:p.sl);
   $('posCard').innerHTML=`
     <div style="display:flex;align-items:center;gap:8px">
       <span class="side-tag ${p.side}">${p.side==='long'?'▲ LONG':'▼ SHORT'}</span>
-      <span style="color:var(--muted);font-size:12px">${p.size.toFixed(4).replace(/\.?0+$/,'')} adet</span>
+      <span style="color:var(--muted);font-size:12px">${p.qty.toFixed(4).replace(/\.?0+$/,'')} adet</span>
     </div>
     <div class="upnl ${cls(upnl)}">${fmtMoney(upnl)} <span style="font-size:14px;opacity:.8">${ur!=null?fmtR(ur):''}</span></div>
     <div class="pos-grid">
       <span class="k">Giriş</span><span class="v">${fmtPrice(p.entryPrice)}</span>
       <span class="k">Şu an</span><span class="v">${fmtPrice(c)}</span>
-      <span class="k">Stop</span><span class="v" style="color:var(--loss)">${fmtPrice(p.sl)}</span>
-      <span class="k">Hedef</span><span class="v" style="color:var(--win)">${p.tp!=null?fmtPrice(p.tp):'—'}</span>
     </div>
-    <button class="btn primary" style="width:100%" id="btnCloseNow">Pozisyonu kapat @ ${fmtPrice(c)}</button>`;
+    <div class="row2" style="margin-top:2px">
+      <div class="field" style="margin:0"><label>Stop (SL)</label><input id="posSL" class="num" value="${p.sl}"></div>
+      <div class="field" style="margin:0"><label>Hedef (TP)</label><input id="posTP" class="num" value="${p.tp!=null?p.tp:''}" placeholder="—"></div>
+    </div>
+    <button class="btn sm" style="width:100%;margin-top:8px" id="btnSLTP">SL / TP güncelle</button>
+    <div style="margin-top:10px;font-size:10px;color:var(--muted2);text-transform:uppercase;letter-spacing:.06em">Parçalı kapat</div>
+    <div class="pc-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:5px">
+      <button class="btn sm" data-pc="0.25">25%</button>
+      <button class="btn sm" data-pc="0.5">50%</button>
+      <button class="btn sm" data-pc="0.75">75%</button>
+    </div>
+    <button class="btn primary" style="width:100%;margin-top:8px" id="btnCloseNow">Tümünü kapat @ ${fmtPrice(c)}</button>`;
   $('btnCloseNow').onclick=manualClose;
+  $('btnSLTP').onclick=()=>setPositionSLTP($('posSL').value,$('posTP').value);
+  $('posCard').querySelectorAll('[data-pc]').forEach(b=> b.onclick=()=>partialClose(parseFloat(b.dataset.pc)));
+}
+function renderOrders(){
+  const box=$('ordersBox'); if(!box) return;
+  const orders=(S&&S.orders)||[];
+  if(!orders.length || (S&&S.position)){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='block';
+  box.innerHTML='<div class="panel-h" style="padding:0 0 6px">Bekleyen emirler</div>'+orders.map(o=>{
+    const kind=o.cond==='le'?(o.side==='long'?'LİMİT':'STOP'):(o.side==='long'?'STOP':'LİMİT');
+    return `<div class="order-row">
+      <span class="tag ${o.side}">${o.side==='long'?'LONG':'SHORT'}</span>
+      <span style="color:var(--muted);font-size:11px">${kind}</span>
+      <span class="num" style="flex:1;text-align:right">@ ${fmtPrice(o.price)}</span>
+      <button class="ord-x" data-oid="${o.id}" title="İptal">✕</button>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('[data-oid]').forEach(b=> b.onclick=()=>cancelOrder(b.dataset.oid));
 }
 function renderStats(){
   const box=$('statsBox');
@@ -1344,7 +1451,7 @@ async function deleteSession(id){
   await store.del(K_SESS(id));
   let idx=await readJSON(K_INDEX)||[]; idx=idx.filter(x=>x.id!==id); await store.set(K_INDEX,idx);
   const last=await readJSON(K_LAST); if(last===id) await store.del(K_LAST);
-  if(S&&S.id===id){ S=null; viewData=[]; clearLines(); series.setData([]); series.setMarkers([]); redrawDrawings(); $('chartEmpty').style.display='grid';
+  if(S&&S.id===id){ S=null; viewData=[]; clearLines(); series.setData([]); if(volSeries) volSeries.setData([]); series.setMarkers([]); redrawDrawings(); $('chartEmpty').style.display='grid';
     cancelEntry(); renderReplay(); render(); }
   renderSessions();
 }
@@ -1357,6 +1464,11 @@ async function resumeSession(id){
     S={...rec,_candles:candles,_tf:{},_cov:{},_trunc:{}};
     if(!S.viewTF) S.viewTF=S.interval;
     if(!S.drawings) S.drawings=[];
+    if(!S.orders) S.orders=[];
+    if(S.position && S.position.qty==null && S.position.size!=null){
+      S.position.qty=S.position.size; S.position.initialQty=S.position.size;
+      if(S.position.initialSL==null) S.position.initialSL=S.position.sl;
+    }
     const baseSec=tfSeconds(S.interval);
     const eStart=candles[0].time+baseSec, eEnd=candles[candles.length-1].time+baseSec;
     if(S.startNow==null) S.startNow = (rec.startIndex!=null && candles[rec.startIndex]) ? candles[rec.startIndex].time+baseSec : eStart;
@@ -1451,6 +1563,8 @@ function wire(){
   $('btnShort').onclick=()=>openPositionFlow('short');
   $('efCancel').onclick=cancelEntry;
   $('efConfirm').onclick=confirmEntry;
+  $('efType').onchange=()=>{ $('efPriceWrap').style.display=$('efType').value==='limit'?'block':'none'; updateDerived(); $('efConfirm').textContent=$('efType').value==='limit'?'Emir koy':'Onayla'; };
+  $('efPrice').oninput=updateDerived;
   $('efSL').oninput=updateDerived; $('efTP').oninput=updateDerived;
   $('efSL').onkeydown=e=>{ if(e.key==='Enter') $('efTP').focus(); };
   $('efTP').onkeydown=e=>{ if(e.key==='Enter') confirmEntry(); };

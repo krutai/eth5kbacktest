@@ -253,6 +253,88 @@
   .ctx-item.danger{color:var(--loss)}
   .ctx-sep{height:1px;background:var(--line);margin:4px 6px}
   .ctx-price{font-family:var(--mono);color:var(--muted2);font-size:11px;padding:5px 11px 6px}
+
+  /* ============ refined design pass v2 ============ */
+  :root{
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --r:13px;
+    --hair:rgba(255,255,255,.07);
+    --glass:linear-gradient(180deg, rgba(22,22,29,.74), rgba(12,12,17,.74));
+    --shadow-card:0 1px 0 rgba(255,255,255,.05) inset, 0 14px 34px -22px rgba(0,0,0,.9);
+  }
+  body{ font-size:13.5px; letter-spacing:0;
+    background:
+      radial-gradient(ellipse at 14% 10%, rgba(201,168,76,.06) 0%, transparent 52%),
+      radial-gradient(ellipse at 88% 90%, rgba(29,158,117,.055) 0%, transparent 52%),
+      radial-gradient(120% 90% at 50% -10%, #11111a 0%, transparent 45%),
+      radial-gradient(140% 120% at 50% 120%, #000 0%, transparent 55%),
+      #060608;
+  }
+  body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.022;mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+  .app{position:relative;z-index:1;gap:14px}
+
+  .panel{background:var(--glass);border:1px solid var(--hair);border-radius:var(--r);
+    box-shadow:var(--shadow-card);backdrop-filter:blur(10px) saturate(1.1);-webkit-backdrop-filter:blur(10px) saturate(1.1)}
+  .panel.pad{padding:16px}
+  .panel-h{display:flex;align-items:center;gap:7px;font-size:10px;letter-spacing:.16em;color:var(--muted);padding:14px 16px 0}
+  .panel-h::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent);box-shadow:0 0 7px rgba(201,168,76,.6);flex:none}
+
+  header{padding:4px 4px 9px;border-bottom:1px solid var(--hair)}
+  .brand{font-size:14px;letter-spacing:.14em}
+  .mark{border-radius:7px;box-shadow:0 0 0 4px rgba(201,168,76,.07),0 6px 14px -6px rgba(201,168,76,.5)}
+  .pill{background:rgba(255,255,255,.03);border-color:var(--hair);border-radius:99px;padding:7px 14px}
+
+  .btn{border-radius:9px;border-color:var(--hair);background:rgba(255,255,255,.03);transition:.14s ease}
+  .btn:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.14)}
+  .btn.primary{background:linear-gradient(180deg,#dcbd6a,#c39f3f);color:#1c1503;border:none;font-weight:700;
+    box-shadow:0 8px 20px -10px rgba(201,168,76,.7), inset 0 1px 0 rgba(255,255,255,.3)}
+  .btn.primary:hover{filter:brightness(1.06)}
+  .btn.long{background:rgba(29,158,117,.14);border-color:rgba(29,158,117,.4);color:var(--long)}
+  .btn.long:hover{background:rgba(29,158,117,.24)}
+  .btn.short{background:rgba(224,82,74,.13);border-color:rgba(224,82,74,.4);color:var(--short)}
+  .btn.short:hover{background:rgba(224,82,74,.24)}
+  .entry-btns .btn{padding:15px;font-size:15px;border-radius:11px;font-weight:700;letter-spacing:.02em}
+
+  .field label{font-size:10px;letter-spacing:.09em;color:var(--muted2)}
+  .field input,.field select,.speed-sel,#riskInput{background:rgba(0,0,0,.32);border:1px solid var(--hair);border-radius:9px;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.4);transition:border-color .12s, box-shadow .12s}
+  .field input:focus,.field select:focus{outline:none;border-color:var(--accent-dim);box-shadow:inset 0 1px 2px rgba(0,0,0,.4),0 0 0 3px rgba(201,168,76,.14)}
+
+  .stats{gap:1px;background:var(--hair);border-radius:var(--r);overflow:hidden;border:1px solid var(--hair)}
+  .stat{background:rgba(13,13,18,.66);padding:13px 14px}
+  .stat .k{font-size:9.5px;letter-spacing:.09em;color:var(--muted2)}
+  .stat .v{font-size:19px;margin-top:3px;letter-spacing:-.02em}
+  .stat.wide{background:linear-gradient(180deg,rgba(201,168,76,.07),rgba(13,13,18,.66))}
+
+  .pos,.order-row{border-radius:11px}
+  .upnl{font-size:26px;text-shadow:0 2px 16px rgba(0,0,0,.5)}
+  .side-tag{border-radius:6px;font-weight:700}
+
+  .tape .tick{border-radius:2px}
+  th{background:rgba(10,10,14,.92);font-size:9.5px;letter-spacing:.07em}
+  td{border-color:var(--hair)}
+  tr:hover td{background:rgba(255,255,255,.02)}
+
+  .tf-bar,.replay-bar,.tape-wrap{border-color:var(--hair)}
+  .tf-btn{border-radius:8px}
+  #btnNext{box-shadow:0 8px 20px -10px rgba(201,168,76,.65)}
+  .progress{height:6px;border-radius:99px;background:rgba(255,255,255,.06)}
+  .progress i{box-shadow:0 0 10px rgba(201,168,76,.5)}
+
+  .sess{border-radius:11px;background:rgba(255,255,255,.022);border-color:var(--hair)}
+  .sess:hover{background:rgba(255,255,255,.05)}
+
+  .modal{background:var(--glass);border:1px solid rgba(255,255,255,.1);border-radius:18px;
+    box-shadow:0 30px 80px -24px #000, inset 0 1px 0 rgba(255,255,255,.06);backdrop-filter:blur(20px)}
+  .ctx-menu,.draw-tools,.icon-btn{background:rgba(14,14,19,.92);border-color:var(--hair);backdrop-filter:blur(12px)}
+  .chart-empty h3{font-weight:600;letter-spacing:-.01em;font-size:19px}
+
+  /* keep numeric data monospace even though UI chrome is now sans */
+  .num,td,.stat .v,.kbd,#efEntry,#efSL,#efTP,#efPrice,#posSL,#posTP,.pos-grid .v,.replay-info .v,.sess .pnl,#hdrBalance{font-family:var(--mono)}
+  /* chart panel stays crisp (no backdrop blur behind the canvas) */
+  #chartPanel{background:linear-gradient(180deg,rgba(14,14,19,.92),rgba(9,9,13,.94));backdrop-filter:none;-webkit-backdrop-filter:none}
+  #chartPanel.maximized{background:#08080b}
 </style>
 </head>
 <body>

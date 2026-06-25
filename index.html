@@ -538,6 +538,9 @@
         </datalist>
       </div>
     </div>
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin:-4px 0 2px;cursor:pointer">
+      <input type="checkbox" id="nsRandSym" style="width:auto;accent-color:#c9a84c;cursor:pointer"> 🎲 Rastgele parite — sembolü rastgele seç (kör pratik)
+    </label>
     <div class="row2">
       <div class="field"><label>Periyot</label><select id="nsInterval">
         <option value="5m">5 dk</option><option value="15m">15 dk</option>
@@ -1480,9 +1483,11 @@ function showCtxMenu(clientX, clientY, atPrice){
     it.push(`<div class="ctx-item short" data-act="lshort">▼ Emir: Sat @ ${fmtPrice(atPrice)}</div>`);
     if(S.orders&&S.orders.length){ it.push(`<div class="ctx-sep"></div>`); it.push(`<div class="ctx-item danger" data-act="cancelall">✕ Tüm emirleri iptal</div>`); }
   }
+  it.push(`<div class="ctx-sep"></div>`);
+  it.push(`<div class="ctx-item" data-act="resetview">⤢ Grafik görünümünü sıfırla</div>`);
   m.innerHTML=it.join('');
   m.style.left=Math.min(clientX, window.innerWidth-205)+'px';
-  m.style.top=Math.min(clientY, window.innerHeight-280)+'px';
+  m.style.top=Math.min(clientY, window.innerHeight-330)+'px';
   m.classList.add('on');
   m.querySelectorAll('[data-act]').forEach(el=> el.onclick=()=>{ ctxAction(el.dataset.act, atPrice); hideCtxMenu(); });
 }
@@ -1498,6 +1503,14 @@ function ctxAction(act, price){
   else if(act==='half') partialClose(0.5);
   else if(act==='close') manualClose();
   else if(act==='cancelall'){ S.orders=[]; updatePositionLines(); render(); scheduleSave(); }
+  else if(act==='resetview') resetChartView();
+}
+function resetChartView(){
+  if(!chart) return;
+  try{ chart.timeScale().resetTimeScale(); }catch(e){}
+  try{ chart.priceScale('right').applyOptions({autoScale:true}); }catch(e){}
+  try{ chart.timeScale().scrollToRealTime(); }catch(e){}
+  scheduleRedraw();
 }
 
 /* ============================================================
@@ -1779,11 +1792,14 @@ async function createSession(){
   const period=$('nsPeriod').value;
   const depthSel=$('nsDepth').value;
   const maxMode=depthSel==='max';
+  const randSym=$('nsRandSym').checked;
+  const RAND_SYMS=['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','DOTUSDT','LTCUSDT','TRXUSDT','ATOMUSDT','NEARUSDT','APTUSDT','ARBUSDT','OPUSDT','SUIUSDT','INJUSDT','TONUSDT'];
+  const symbol = randSym ? RAND_SYMS[Math.floor(Math.random()*RAND_SYMS.length)] : $('nsSymbol').value.trim().toUpperCase();
   const cfg={
-    name:$('nsName').value.trim()||($('nsSymbol').value.trim()+' oturumu'),
-    source:$('nsSource').value, symbol:$('nsSymbol').value.trim().toUpperCase(),
+    name:$('nsName').value.trim()||(randSym?'Rastgele oturum':(symbol+' oturumu')),
+    source:$('nsSource').value, symbol,
     interval:$('nsInterval').value, depth: maxMode?Infinity:+depthSel,
-    blind:$('nsBlind').value==='on', balance:Math.max(1,parseFloat($('nsBalance').value)||10000),
+    blind:($('nsBlind').value==='on')||randSym, balance:Math.max(1,parseFloat($('nsBalance').value)||10000),
     risk:Math.max(0.01,parseFloat($('nsRisk').value)||1),
     startMode:$('nsStart').value,
   };
@@ -1832,6 +1848,12 @@ function wire(){
     const v=$('nsPeriod').value;
     $('nsDateWrap').style.display = v==='date' ? 'block' : 'none';
     if(v==='random') $('nsBlind').value='on';   // random date is meant for blind practice
+  };
+  $('nsRandSym').onchange=()=>{
+    const on=$('nsRandSym').checked;
+    $('nsSymbol').disabled=on;
+    $('nsSymbol').style.opacity=on?'.4':'';
+    if(on) $('nsBlind').value='on';             // random pair only makes sense hidden
   };
   $('scrim').onclick=e=>{ if(e.target===$('scrim')) closeModal(); };
 

@@ -335,6 +335,19 @@
   /* chart panel stays crisp (no backdrop blur behind the canvas) */
   #chartPanel{background:linear-gradient(180deg,rgba(14,14,19,.92),rgba(9,9,13,.94));backdrop-filter:none;-webkit-backdrop-filter:none}
   #chartPanel.maximized{background:#08080b}
+  /* prevent the chart canvas from blocking the grid column from shrinking (fixes layout after exiting fullscreen) */
+  .grid{min-width:0}
+  .grid>.panel,.grid>.side{min-width:0}
+  #chartPanel{min-width:0;overflow:hidden}
+  #chart,.chart-wrap{min-width:0}
+  /* fullscreen stats HUD (only visible while maximized) */
+  .max-hud{display:none}
+  #chartPanel.maximized .max-hud{display:flex;align-items:stretch;gap:1px;background:var(--hair);
+    border-top:1px solid var(--hair);overflow-x:auto}
+  .max-hud .h-item{background:rgba(10,10,14,.92);padding:8px 16px;display:flex;flex-direction:column;gap:2px;min-width:96px;flex:1}
+  .max-hud .h-k{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted2)}
+  .max-hud .h-v{font-family:var(--mono);font-size:16px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .max-hud .h-item.accent{background:linear-gradient(180deg,rgba(201,168,76,.1),rgba(10,10,14,.92))}
 </style>
 </head>
 <body>
@@ -415,6 +428,7 @@
         <div class="panel-h" style="padding:0 0 6px">Oturum şeridi — her tik bir işlem</div>
         <div class="tape" id="tape"><span class="tape-empty">İşlem bekleniyor…</span></div>
       </div>
+      <div class="max-hud" id="maxHud"></div>
     </div>
 
     <!-- RIGHT: position / entry / stats -->
@@ -1422,7 +1436,29 @@ function toggleMax(){
   $('chartPanel').classList.toggle('maximized', maximized);
   document.body.style.overflow = maximized?'hidden':'';
   $('btnMax').title = maximized?'Çık (M / Esc)':'Tam ekran (M)';
-  requestAnimationFrame(()=>{ const el=$('chart'); if(chart){ chart.applyOptions({width:el.clientWidth,height:el.clientHeight}); } sizeDrawLayer(); redrawDrawings(); });
+  renderMaxHud();
+  const fit=()=>{ const el=$('chart'); if(chart&&el){ chart.applyOptions({width:el.clientWidth,height:el.clientHeight}); } sizeDrawLayer(); redrawDrawings(); };
+  requestAnimationFrame(()=>{ fit(); requestAnimationFrame(fit); });  // let layout settle before sizing the chart
+}
+function renderMaxHud(){
+  const box=$('maxHud'); if(!box) return;
+  if(!S){ box.innerHTML=''; return; }
+  const st=computeStats(S.trades,S.startingBalance);
+  const item=(k,v,cls)=>`<div class="h-item${cls?' '+cls:''}"><div class="h-k">${k}</div><div class="h-v ${cls==='accent'?'':''}">${v}</div></div>`;
+  if(!st || !st.n){
+    box.innerHTML = item('Bakiye', fmtMoney(S.balance),'accent') + item('İşlem','0') + item('Net P/Z', fmtMoney(0));
+    return;
+  }
+  const netPct = S.startingBalance? (st.totalPnl/S.startingBalance*100):0;
+  box.innerHTML =
+    item('Net P/Z', `<span class="${cls(st.totalPnl)}">${fmtMoney(st.totalPnl)}</span>`, 'accent') +
+    item('Net %', `<span class="${cls(st.totalPnl)}">${netPct>=0?'+':''}${netPct.toFixed(2)}%</span>`) +
+    item('Toplam R', `<span class="${cls(st.totalR)}">${fmtR(st.totalR)}</span>`) +
+    item('Kazanma', `${(st.winRate*100).toFixed(0)}%`) +
+    item('İşlem', `${st.n} <span style="color:var(--muted2);font-size:11px">(${st.wins}K/${st.losses}Z)</span>`) +
+    item('Profit Factor', isFinite(st.profitFactor)? st.profitFactor.toFixed(2):'∞') +
+    item('Max DD', `<span style="color:var(--loss)">-${(st.maxDD*100).toFixed(1)}%</span>`) +
+    item('Bakiye', fmtMoney(S.balance),'accent');
 }
 
 /* ---------- right-click trade menu ---------- */
@@ -1467,7 +1503,7 @@ function ctxAction(act, price){
 /* ============================================================
    RENDER
    ============================================================ */
-function render(){ renderHeader(); renderTFBar(); renderReplay(); renderPosition(); renderStats(); renderTape(); renderLog(); renderEquity(); }
+function render(){ renderHeader(); renderTFBar(); renderReplay(); renderPosition(); renderStats(); renderTape(); renderLog(); renderEquity(); renderMaxHud(); }
 
 function renderTFBar(){
   const bar=$('tfBar'); if(!bar) return;
